@@ -24,6 +24,12 @@ mosquitto_pub -h $(docker-machine ip) -t foo -m bar
 
 
 
+## Troubleshooting
+
+MQTT Gateway should be built using the same release version of Erlang/OTP as VerneMQ.
+
+
+
 ### License
 
 The source code is provided under the terms of [the MIT license][license].
