@@ -17,7 +17,6 @@ doc
 log
 _rel
 relx
-elvis
 erl_crash.dump
 .erlang.mk
 *.beam
