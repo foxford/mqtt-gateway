@@ -11,6 +11,7 @@ COPY . "./"
 RUN set -xe \
     && apk add --no-cache --virtual .build-deps \
         openssh \
+        perl \
         git \
         make \
         curl \

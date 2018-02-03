@@ -8,6 +8,18 @@ based on conventions and dynamic rules.
 
 
 
+### Overview
+
+#### Authentication
+
+| Name           |   Type |  Default | Description |
+| -------------- | ------ | -------- | ----------- |
+| MQTT_CLIENT_ID | String | required | Concatenate your account and agent identifiers to form MQTT client identifier `${ACCOUNT_ID}.${AGENT_ID}` |
+| MQTT_PASSWORD  | String | optional | The value is currently ignored |
+| MQTT_USERNAME  | String | optional | The value is currently ignored |
+
+
+
 ### How To Use
 
 To build and start playing with the application,
@@ -19,7 +31,8 @@ docker build -t manifesthub/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
 docker run -p1883:1883 -ti --rm manifesthub/mqtt-gateway
 ## Publishing a message to the broker
-mosquitto_pub -h $(docker-machine ip) -t foo -m bar
+MQTT_CLIENT_ID='00000000-0000-1000-a000-000000000000.11111111-1111-1111-a111-111111111111' \
+    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t foo -m bar
 ```
 
 
