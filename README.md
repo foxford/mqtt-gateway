@@ -1,5 +1,7 @@
 # MQTT Gateway
 
+[![Build Status][travis-img]][travis]
+
 MQTT Gateway is a VerneMQ plugin with token based (OAuth2 Bearer Token)
 authentication on connect and topic based authorization on publish/subscribe
 based on conventions and dynamic rules.
@@ -26,4 +28,6 @@ mosquitto_pub -h $(docker-machine ip) -t foo -m bar
 
 The source code is provided under the terms of [the MIT license][license].
 
+[travis]:https://travis-ci.org/netology-group/mqtt-gateway?branch=master
+[travis-img]:https://secure.travis-ci.org/netology-group/mqtt-gateway.png?branch=master
 [license]:http://www.opensource.org/licenses/MIT

@@ -1,0 +1,12 @@
+language: erlang
+otp_release:
+  - 19.3
+services:
+  - docker
+install: make elvis && make deps plt
+script: make check EUNIT_OPTS=verbose
+notifications:
+  email:
+    on_success: never
+    on_failure: always
+
