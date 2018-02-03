@@ -1,6 +1,5 @@
 PROJECT = mqttgw
 PROJECT_DESCRIPTION = Authentication and authorization plugin for VerneMQ
-PROJECT_VERSION = 0.1.0
 
 define PROJECT_ENV
 	[{vmq_plugin_hooks,
@@ -13,6 +12,10 @@ DEPS = \
 	vernemq_dev
 
 dep_vernemq_dev = git git://github.com/erlio/vernemq_dev.git master
+
+DEP_PLUGINS = version.mk
+BUILD_DEPS = version.mk
+dep_version.mk = git git://github.com/manifest/version.mk.git master
 
 SHELL_DEPS = tddreloader
 SHELL_OPTS = \
