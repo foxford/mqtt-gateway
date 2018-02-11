@@ -1,0 +1,13 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: mqtt-gateway-loadbalancer
+spec:
+  selector:
+    app: mqtt-gateway
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+    name: mqtt
+  type: LoadBalancer
