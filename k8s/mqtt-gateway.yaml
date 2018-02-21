@@ -14,11 +14,11 @@ spec:
     name: mqtt
   - protocol: TCP
     port: 80
-    targetPort: 80
+    targetPort: 8080
     name: http
   clusterIP: None
 ---
-apiVersion: apps/v1beta2
+apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mqtt-gateway
@@ -65,4 +65,4 @@ spec:
       storageClassName: mqtt-gateway-storage
       resources:
         requests:
-          storage: 1Gi
+          storage: 10Gi
