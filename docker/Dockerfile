@@ -64,3 +64,7 @@ RUN set -xe \
 COPY --from=build-stage "${BUILD_DIR}/_rel/${APP_NAME}" "${APP_DIR}/"
 
 ENTRYPOINT ["/run.sh"]
+<<<<<<< HEAD
+=======
+#ENTRYPOINT ["/bin/bash", "-c", "/usr/sbin/vernemq start && tail -f /var/log/vernemq/console.log & wait ${!}"]
+>>>>>>> 21e8556ea04d4b12c98b403e840d0a89df03717a
