@@ -43,9 +43,6 @@ spec:
           postStart:
             exec:
               command: ['/bin/sh', '-c', 'chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
-          preStop:
-            exec:
-              command: ["/usr/sbin/vernemq","-c","stop"] 
         resources:
           requests:
             cpu: "0.1"
