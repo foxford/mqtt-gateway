@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mqtt-gateway-headless
+  labels:
+    app: mqtt-gateway-headless
+spec:
+  selector:
+    app: mqtt-gateway
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+    name: mqtt
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mqtt-gateway
+spec:
+  serviceName: mqtt-gateway-headless
+  selector:
+    matchLabels:
+      app: mqtt-gateway
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mqtt-gateway
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: mqtt-gateway
+        image: manifesthub/mqtt-gateway:latest
+        ports:
+        - containerPort: 1883
+          name: mqtt
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/vernemq
+        lifecycle:
+          postStart:
+            exec:
+              command: ['/bin/sh', '-c', 'chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
+        resources:
+          requests:
+            cpu: "0.1"
+            memory: 200Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      storageClassName: mqtt-gateway-storage
+      resources:
+        requests:
+          storage: 1Gi
