@@ -13,9 +13,9 @@ spec:
     targetPort: 1883
     name: mqtt
   - protocol: TCP
-    port: 80
-    targetPort: 8080
-    name: http
+    port: 8888
+    targetPort: 8888
+    name: ws
   clusterIP: None
 ---
 apiVersion: apps/v1
@@ -40,8 +40,8 @@ spec:
         ports:
         - containerPort: 1883
           name: mqtt
-        - containerPort: 8080
-          name: http
+        - containerPort: 8888
+          name: ws
         volumeMounts:
         - name: data
           mountPath: /var/lib/vernemq

@@ -11,7 +11,7 @@ spec:
     targetPort: 1883
     name: mqtt
   - protocol: TCP
-    port: 80
-    targetPort: 8080
-    name: http
+    port: 8888
+    targetPort: 8888
+    name: ws
   type: LoadBalancer
