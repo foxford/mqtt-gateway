@@ -50,13 +50,15 @@ RUN set -xe \
 && rm vernemq.deb
 
 ## Configuring VerneMQ
+COPY ./docker/run.sh /run.sh
 RUN set -xe \
     && VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
     && perl -pi -e 's/(listener.tcp.default = ).*/${1}0.0.0.0:1883\nlistener.ws.default = 0.0.0.0:8080/g' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
-    && printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = ${APP_DIR}\n" >> "${VERNEMQ_CONF}"
+    && printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = ${APP_DIR}\n" >> "${VERNEMQ_CONF}" \
+    && chmod + /run.sh
 
 COPY --from=build-stage "${BUILD_DIR}/_rel/${APP_NAME}" "${APP_DIR}/"
 
-ENTRYPOINT ["/bin/bash", "-c", "/usr/sbin/vernemq start && tail -f /var/log/vernemq/console.log & wait ${!}"]
+ENTRYPOINT ["/run.sh"]
