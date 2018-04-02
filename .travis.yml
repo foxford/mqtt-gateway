@@ -1,12 +1,39 @@
 language: erlang
 otp_release:
   - 19.3
-services:
-  - docker
-install: make elvis deps plt
-script: make check EUNIT_OPTS=verbose
 notifications:
   email:
     on_success: never
     on_failure: always
-
+git:
+  depth: 1
+jobs:
+  include:
+    - stage: commit
+      install: make elvis deps plt
+      script: make check EUNIT_OPTS=verbose
+    - stage: docker build/publish
+      sudo: required
+      services: docker
+      script: DOCKER_IMAGE_NAME=mqtt-gateway scripts/docker.image.publish.sh
+    - stage: release
+      env:
+        - NAMESPACE=staging APP=mqtt-gateway
+      script:
+        - |
+          scripts/gcloud.install.sh &&
+          scripts/k8s.install.sh &&
+          PATH_TO_FILE=${TRAVIS_BUILD_DIR}/k8s scripts/k8s.chart.download.sh &&
+          PATH_TO_CHARTS=${TRAVIS_BUILD_DIR}/k8s K8S_RESOURCE=sts scripts/k8s.charts.apply.sh
+stages:
+  - name: warmup
+  - name: commit
+  - name: docker build/publish
+    if: branch = master AND type = push
+  - name: test
+  - name: migrate
+    if: branch = master AND type = push
+  - name: release
+    if: branch = master AND type = push
+  - name: publish
+    if: branch = master AND type = push
