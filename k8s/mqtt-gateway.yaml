@@ -8,14 +8,22 @@ spec:
   selector:
     app: mqtt-gateway
   ports:
-  - protocol: TCP
-    port: 1883
-    targetPort: 1883
-    name: mqtt
-  - protocol: TCP
-    port: 80
-    targetPort: 8080
-    name: http
+    - protocol: TCP
+      port: 8883
+      targetPort: 8883
+      name: mqtts
+    - protocol: TCP
+      port: 443
+      targetPort: 8443
+      name: https
+    - protocol: TCP
+      port: 1883
+      targetPort: 1883
+      name: mqtt
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      name: http
   clusterIP: None
 ---
 apiVersion: apps/v1
@@ -35,34 +43,49 @@ spec:
     spec:
       terminationGracePeriodSeconds: 30
       containers:
-      - name: mqtt-gateway
-        image: manifesthub/mqtt-gateway:latest
-        ports:
-        - containerPort: 1883
-          name: mqtt
-        - containerPort: 8080
-          name: http
-        volumeMounts:
-        - name: data
-          mountPath: /var/lib/vernemq
-        lifecycle:
-          postStart:
-            exec:
-              command: ['/bin/sh', '-c', 'chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
+        - name: mqtt-gateway
+          image: netologygroup/mqtt-gateway:latest
+          ports:
+            - containerPort: 8883
+              name: mqtts
+            - containerPort: 8443
+              name: https
+            - containerPort: 1883
+              name: mqtt
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/vernemq
+            - name: conf
+              mountPath: /etc/vernemq
+            - name: tls
+              mountPath: /tls
+          lifecycle:
+            postStart:
+              exec:
+                command: ['/bin/sh', '-c', 'chown vernemq:vernemq -R /tls && chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
+          resources:
+            requests:
+              cpu: "0.1"
+              memory: 200Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: conf
+          configMap:
+            name: mqtt-gateway-configmap
+        - name: tls
+          secret:
+            secretName: tls-certificates
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: mqtt-gateway-storage
         resources:
           requests:
-            cpu: "0.1"
-            memory: 200Mi
-          limits:
-            cpu: "1"
-            memory: 2Gi
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      storageClassName: mqtt-gateway-storage
-      resources:
-        requests:
-          storage: 1Gi
+            storage: 1Gi
