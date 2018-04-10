@@ -16,7 +16,7 @@ jobs:
       sudo: required
       services: docker
       env:
-        - APP=signals
+        - APP=mqtt-gateway
       script:
         - |
           source scripts/ns.setup.profile &&
