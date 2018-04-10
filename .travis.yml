@@ -5,6 +5,9 @@ notifications:
   email:
     on_success: never
     on_failure: always
+cache:
+  directories:
+    - ${HOME}/google-cloud-sdk
 git:
   depth: 1
 jobs:
