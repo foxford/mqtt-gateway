@@ -44,7 +44,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: mqtt-gateway
-          image: netologygroup/mqtt-gateway:latest
+          image: netologygroup/mqtt-gateway
           ports:
             - containerPort: 8883
               name: mqtts
