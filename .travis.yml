@@ -1,12 +1,40 @@
 language: erlang
 otp_release:
   - 19.3
-services:
-  - docker
-install: make elvis deps plt
-script: make check EUNIT_OPTS=verbose
 notifications:
   email:
     on_success: never
     on_failure: always
-
+git:
+  depth: 1
+jobs:
+  include:
+    - stage: commit
+      install: make elvis deps plt
+      script: make check EUNIT_OPTS=verbose
+    - stage: release
+      sudo: required
+      services: docker
+      env:
+        - APP=signals
+      script:
+        - |
+          source scripts/ns.setup.profile &&
+          scripts/gcloud.install.sh &&
+          scripts/k8s.install.sh &&
+          scripts/k8s.cluster.init.sh &&
+          scripts/skaffold.install.sh &&
+          PATH_TO_FILE=${TRAVIS_BUILD_DIR}/k8s scripts/k8s.chart.download.sh &&
+          docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD} &&
+          scripts/skaffold.init.sh &&
+          scripts/skaffold.run.sh
+stages:
+  - name: warmup
+  - name: commit
+  - name: test
+  - name: release
+    if: branch = master AND type = push
+  - name: migrate
+    if: (branch = master AND type = push) AND env(TRAVIS_TAG) IS present
+  - name: publish
+    if: branch = master AND type = push
