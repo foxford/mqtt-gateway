@@ -21,7 +21,7 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## App
 ## -----------------------------------------------------------------------------
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 ENV BUILD_DIR=${BUILD_DIR:-"/build"}
 ENV APP_DIR=${APP_DIR:-"/app"}
@@ -42,8 +42,8 @@ RUN set -xe \
 
 ## Installing VerneMQ
 RUN set -xe \
-    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/xenial/vernemq_1.3.0-1_amd64.deb' \
-    && VERNEMQ_SHA='84244d2787b308c7a8307e35f11dcdae9c24722e' \
+    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.4.0-1_amd64.deb' \
+    && VERNEMQ_SHA='87e8e2b85ddd37e35b5ee0575d1f69c42438d8588609d2f5dd538c45fc887a0a' \
     && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
         && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
         && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
