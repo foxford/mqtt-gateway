@@ -42,8 +42,8 @@ RUN set -xe \
 
 ## Installing VerneMQ
 RUN set -xe \
-    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.4.0-1_amd64.deb' \
-    && VERNEMQ_SHA='87e8e2b85ddd37e35b5ee0575d1f69c42438d8588609d2f5dd538c45fc887a0a' \
+    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.4.1-1_amd64.deb' \
+    && VERNEMQ_SHA='d78e3a684548d3a4cbdd72a4a9ecec489b34c96b52ac801f34e762fb4db5a20e' \
     && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
         && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
         && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
