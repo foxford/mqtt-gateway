@@ -40,6 +40,15 @@
     auth_on_subscribe/3
 ]).
 
+%% API
+-export([
+    mqtt_connection/0
+]).
+
+%% Configuration
+-export([
+    mqtt_connection_options/0
+]).
 
 %% Types
 -record(client_id, {
@@ -66,7 +75,7 @@ auth_on_register(
     catch
         T:R ->
             error_logger:warning_msg(
-                "Agent failed to connect: invalid client_id=~p, "
+                "Agent failed to connect: client_id=~p, "
                 "exception_type=~p, excepton_reason=~p",
                 [ClientId, T, R]),
             {error, invalid_credentials}
@@ -86,7 +95,7 @@ auth_on_publish(
     catch
         T:R ->
             error_logger:error_msg(
-                "Agent failed to publish: invalid msg=~p, "
+                "Agent failed to publish: invalid message=~p, "
                 "exception_type=~p, excepton_reason=~p",
                 [Payload, T, R]),
             {error, bad_payload}
@@ -105,6 +114,30 @@ auth_on_subscribe(
         [AccountId, AgentId, Topics]),
 
     ok.
+
+%% =============================================================================
+%% API
+%% =============================================================================
+
+-spec mqtt_connection() -> pid().
+mqtt_connection() ->
+    element(2, lists:keyfind(mqtt_connection, 1, supervisor:which_children(mqttgw_sup))).
+
+%% =============================================================================
+%% Configuration
+%% =============================================================================
+
+-spec mqtt_connection_options() -> list().
+mqtt_connection_options() ->
+    Default = [
+        {host, "localhost"},
+        {port, 1883},
+        {client_id, <<"00000000-0000-1000-a000-000000000000.broker-1">>},
+        {clean_sess, true},
+        {logger, {lager, info}},
+        {reconnect, 5}
+    ],
+    application:get_env(mediagw, mqtt_connection_options, Default).
 
 %% =============================================================================
 %% Internal functions

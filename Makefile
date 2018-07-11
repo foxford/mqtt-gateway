@@ -13,12 +13,10 @@ endef
 
 DEPS = \
 	vernemq_dev \
-	uuid \
-	jsx
+	mqttc
 
-dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git ac1669f8aff5fa22e36cd389260bbfe255b82ec7
-dep_uuid = git https://github.com/okeuday/uuid.git v1.7.2
-dep_jsx = git https://github.com/talentdeficit/jsx.git v2.9.0
+dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git a17b10615a4b17bd7b8a11846c88edc761b4c6a4
+dep_mqttc = cp ../mqtt-client-erlang
 
 DEP_PLUGINS = version.mk
 BUILD_DEPS = version.mk

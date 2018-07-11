@@ -47,6 +47,20 @@ start_link() ->
 %% =============================================================================
 
 init([]) ->
-    Flags = #{},
-    Procs = [],
+    MqttConnectionConf =
+        #{connection_options => mqttgw:mqtt_connection_options(),
+          module => mqttc_jsonrpc},
+
+    Flags = #{strategy => one_for_one},
+    Procs = [mqtt_connection_spec(MqttConnectionConf)],
     {ok, {Flags, Procs}}.
+
+%% =============================================================================
+%% Internal functions
+%% =============================================================================
+
+-spec mqtt_connection_spec(map()) -> supervisor:child_spec().
+mqtt_connection_spec(Conf) ->
+    #{id => mqtt_connection,
+      start => {mqttc, start_link, [Conf]},
+      restart => permanent}.
