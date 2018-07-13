@@ -42,21 +42,26 @@
 
 %% API
 -export([
-    mqtt_connection/0
+    mqtt_connection/0,
+    make_agent_label/0,
+    make_agent_state/1,
+    client_id/1
 ]).
 
 %% Configuration
 -export([
-    mqtt_connection_options/0
+    account_id/0,
+    mqtt_connection_options/1,
+    environment_variable_to_binary/1,
+    environment_variable_to_binary/2
 ]).
 
 %% Types
--record(client_id, {
-    account_id :: binary(),
-    agent_id   :: binary()
-}).
-
--type client_id() :: #client_id{}.
+-type agent_id() :: #{account_id => binary(), label => binary()}.
+-type agent_state() ::
+    #{agent_id := agent_id(),
+      token := binary(),
+      state := idle | active}.
 
 %% =============================================================================
 %% Plugin callbacks
@@ -66,11 +71,11 @@ auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
     _Password, _CleanSession) ->
 
-    try validate_client_id(ClientId) of
-        #client_id{account_id=AccountId, agent_id=AgentId} ->
+    try validate_agent_id(ClientId) of
+        #{account_id := AccountId, label := Label} ->
             error_logger:info_msg(
-                "Agent connected: account_id=~s, agent_id=~s",
-                [AccountId, AgentId]),
+                "Agent connected: account_id=~s, label=~s",
+                [AccountId, Label]),
             ok
     catch
         T:R ->
@@ -85,19 +90,19 @@ auth_on_publish(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     _QoS, _Topic, Payload, _IsRetain) ->
 
-    #client_id{
-        account_id=AccountId,
-        agent_id=AgentId} = parse_client_id(ClientId),
+    #{account_id := AccountId,
+      label := Label} = AgentId = parse_agent_id(ClientId),
 
-    try envelope(AccountId, AgentId, Payload) of
+    try envelope(AgentId, Payload) of
         Envelope ->
             {ok, [{payload, Envelope}]}
     catch
         T:R ->
             error_logger:error_msg(
-                "Agent failed to publish: invalid message=~p, "
+                "Agent failed to publish: "
+                "account_id=~s, label=~s, message=~p, "
                 "exception_type=~p, excepton_reason=~p",
-                [Payload, T, R]),
+                [AccountId, Label, Payload, T, R]),
             {error, bad_payload}
     end.
 
@@ -105,15 +110,18 @@ auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Topics) ->
 
-    #client_id{
-        account_id=AccountId,
-        agent_id=AgentId} = parse_client_id(ClientId),
+    #{account_id := AccountId,
+      label := Label} = parse_agent_id(ClientId),
 
     error_logger:info_msg(
-        "Agent subscribed: account_id=~s, agent_id=~s, topics=~p",
-        [AccountId, AgentId, Topics]),
+        "Agent subscribed: account_id=~s, label=~s, topics=~p",
+        [AccountId, Label, Topics]),
 
     ok.
+
+-spec client_id(agent_id()) -> binary().
+client_id(#{account_id := AccountId, label := Label}) ->
+    <<AccountId/binary, $., Label/binary>>.
 
 %% =============================================================================
 %% API
@@ -123,45 +131,92 @@ auth_on_subscribe(
 mqtt_connection() ->
     element(2, lists:keyfind(mqtt_connection, 1, supervisor:which_children(mqttgw_sup))).
 
+-spec make_agent_label() -> binary().
+make_agent_label() ->
+    base64:encode(crypto:strong_rand_bytes(16)).
+
+-spec make_agent_state(agent_id()) -> agent_state().
+make_agent_state(AgentId) ->
+    #{agent_id => AgentId,
+      token => crypto:strong_rand_bytes(16),
+      state => idle}.
+
 %% =============================================================================
 %% Configuration
 %% =============================================================================
 
--spec mqtt_connection_options() -> list().
-mqtt_connection_options() ->
+-spec account_id() -> binary().
+account_id() ->
+    environment_variable_to_binary("ACCOUNT_ID").
+
+-spec mqtt_url() -> binary().
+mqtt_url() ->
+    environment_variable_to_binary("MQTT_URL", <<"mqtt://localhost:1883">>).
+
+-spec mqtt_connection_options(binary()) -> list().
+mqtt_connection_options(ClientId) ->
     Default = [
-        {host, "localhost"},
-        {port, 1883},
-        {client_id, <<"00000000-0000-1000-a000-000000000000.broker-1">>},
         {clean_sess, true},
         {logger, {lager, info}},
         {reconnect, 5}
     ],
-    application:get_env(mediagw, mqtt_connection_options, Default).
+
+    {Scheme, _UserInfo, Host, Port, _Path, _Query} =
+        case http_uri:parse(binary_to_list(mqtt_url())) of
+            {ok, Val}      -> Val;
+            {error, Reason} -> error({bad_mqtt_uri, Reason})
+        end,
+    EnvL =
+        [ {host, Host},
+          {port, Port},
+          {client_id, ClientId} ]
+        ++ case Scheme of
+            mqtts -> [ssl];
+            _     -> []
+        end,
+
+    Opts = application:get_env(mediagw, mqtt_connection_options, Default),
+    lists:foldl(
+        fun({Key, _} =Param, Acc) ->
+            lists:keystore(Key, 1, Acc, Param)
+        end, Opts, EnvL).
+
+-spec environment_variable_to_binary(nonempty_string()) -> binary().
+environment_variable_to_binary(Name) ->
+    case os:getenv(Name) of
+        false -> error({missing_environment_variable, Name});
+        Val   -> list_to_binary(Val)
+    end.
+
+-spec environment_variable_to_binary(nonempty_string(), binary()) -> binary().
+environment_variable_to_binary(Name, Default) ->
+    case os:getenv(Name) of
+        false -> Default;
+        Val   -> list_to_binary(Val)
+    end.
 
 %% =============================================================================
 %% Internal functions
 %% =============================================================================
 
--spec validate_client_id(binary()) -> client_id().
-validate_client_id(Val) ->
-    ClientId =
-        #client_id{
-            account_id=AccountId,
-            agent_id=AgentId} = parse_client_id(Val),
+-spec validate_agent_id(binary()) -> agent_id().
+validate_agent_id(Val) ->
+    AgentId =
+        #{account_id := AccountId,
+            label := Label} = parse_agent_id(Val),
     true = uuid:is_uuid(uuid:string_to_uuid(AccountId)),
-    true = uuid:is_uuid(uuid:string_to_uuid(AgentId)),
-    ClientId.
+    true = is_binary(Label),
+    AgentId.
 
--spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<AccountId:36/binary, $., AgentId:36/binary>>) ->
-    #client_id{account_id=AccountId, agent_id=AgentId}.
+-spec parse_agent_id(binary()) -> agent_id().
+parse_agent_id(<<AccountId:36/binary, $., Label/binary>>) ->
+    #{account_id => AccountId, label => Label}.
 
--spec envelope(binary(), binary(), binary()) -> jsx:json_term().
-envelope(AccountId, AgentId, Message) ->
+-spec envelope(agent_id(), binary()) -> jsx:json_term().
+envelope(AgentId, Message) ->
     jsx:encode(
-        #{  sub => #{account_id => AccountId, agent_id => AgentId},
-            msg => Message  }).
+        #{sub => AgentId,
+          msg => Message}).
 
 %% =============================================================================
 %% Tests
@@ -174,9 +229,9 @@ uuid_t() ->
 
 client_id_t() ->
     ?LET(
-        {AccountId, AgentId},
-        {uuid_t(), uuid_t()},
-        <<AccountId/binary, $., AgentId/binary>>).
+        {AccountId, Label},
+        {uuid_t(), binary_utf8_t()},
+        <<AccountId/binary, $., Label/binary>>).
 
 subscriber_id_t() ->
     ?LET(
@@ -223,13 +278,11 @@ prop_onpublish() ->
         {binary_utf8_t(), subscriber_id_t(),
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
-            #client_id{
-                account_id=AccountId,
-                agent_id=AgentId} = parse_client_id(element(2, SubscriberId)),
+            AgentId = parse_agent_id(element(2, SubscriberId)),
             {ok, Modifiers} =
                 auth_on_publish(Username, SubscriberId, QoS, Topic, Payload, IsRetain),
             {_, Envelope} = lists:keyfind(payload, 1, Modifiers),
-            Envelope =:= envelope(AccountId, AgentId, Payload)
+            Envelope =:= envelope(AgentId, Payload)
         end).
 
 prop_onsubscribe() ->

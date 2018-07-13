@@ -37,7 +37,13 @@
 %% =============================================================================
 
 start(_StartType, _StartArgs) ->
-    mqttgw_sup:start_link().
+    AgentId =
+        #{account_id => mqttgw:account_id(),
+          label => mqttgw:make_agent_label()},
+
+    mqttgw_state:new(),
+    mqttgw_state:put(agent_state, mqttgw:make_agent_state(AgentId)),
+    mqttgw_sup:start_link(mqttgw:client_id(AgentId)).
 
 stop(_State) ->
     ok.

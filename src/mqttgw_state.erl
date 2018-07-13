@@ -22,46 +22,42 @@
 %% IN THE SOFTWARE.
 %% -----------------------------------------------------------------------------
 
--module(mqttgw_sup).
--behaviour(supervisor).
+-module(mqttgw_state).
 
 %% API
 -export([
-    start_link/1
+    new/0,
+    get/1,
+    put/2
 ]).
 
-%% Supervisor callbacks
--export([
-    init/1
-]).
+%% Types
+-record(state, {
+    key,
+    value
+}).
+
+%% Definitions
+-define(STATE_TABLE, ?MODULE).
 
 %% =============================================================================
 %% API
 %% =============================================================================
 
-start_link(ClientId) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, #{client_id => ClientId}).
+-spec new() -> ok.
+new() ->
+    _ = ets:new(
+        ?STATE_TABLE,
+        [ set, public, named_table,
+          {keypos, #state.key},
+          {read_concurrency, true} ]),
+    ok.
 
-%% =============================================================================
-%% Supervisor callbacks
-%% =============================================================================
+-spec get(any()) -> any().
+get(Key) ->
+    ets:lookup_element(?STATE_TABLE, Key, #state.value).
 
-init(Conf) ->
-    ClientId = maps:get(client_id, Conf),
-    MqttConnectionConf =
-        #{connection_options => mqttgw:mqtt_connection_options(ClientId),
-          module => mqttc_jsonrpc},
-
-    Flags = #{strategy => one_for_one},
-    Procs = [mqtt_connection_spec(MqttConnectionConf)],
-    {ok, {Flags, Procs}}.
-
-%% =============================================================================
-%% Internal functions
-%% =============================================================================
-
--spec mqtt_connection_spec(map()) -> supervisor:child_spec().
-mqtt_connection_spec(Conf) ->
-    #{id => mqtt_connection,
-      start => {mqttc, start_link, [Conf]},
-      restart => permanent}.
+-spec put(any(), any()) -> ok.
+put(Key, Val) ->
+    ets:insert(?STATE_TABLE, #state{key=Key, value=Val}),
+    ok.
