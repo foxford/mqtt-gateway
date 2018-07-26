@@ -1,0 +1,1 @@
+drop table if exists broker_heartbeat cascade;
