@@ -46,15 +46,15 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+            - name: VERNEMQ_DISCOVERY_KUBERNETES
               value: "1"
-            - name: DOCKER_VERNEMQ_KUBERNETES_INSECURE
+            - name: VERNEMQ_KUBERNETES_INSECURE
               value: "1"
-            - name: DOCKER_VERNEMQ_KUBERNETES_NAMESPACE
+            - name: VERNEMQ_KUBERNETES_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: DOCKER_VERNEMQ_KUBERNETES_APP_LABEL
+            - name: VERNEMQ_KUBERNETES_APP_LABEL
               value: mqtt-gateway
           volumeMounts:
             - name: data
