@@ -48,8 +48,6 @@ spec:
                   fieldPath: metadata.name
             - name: VERNEMQ_DISCOVERY_KUBERNETES
               value: "1"
-            - name: VERNEMQ_KUBERNETES_INSECURE
-              value: "1"
             - name: VERNEMQ_KUBERNETES_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -60,7 +58,7 @@ spec:
             - name: data
               mountPath: /var/lib/vernemq
             - name: conf
-              mountPath: /etc/vernemq.conf
+              mountPath: /etc/vernemq.conf ## Will be copied and modified to /etc/vernemq/vernemq.conf
               subPath: vernemq.conf
             - name: tls
               mountPath: /tls
