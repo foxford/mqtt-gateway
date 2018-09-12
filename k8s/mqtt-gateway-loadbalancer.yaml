@@ -11,7 +11,7 @@ spec:
       targetPort: 8883
       name: mqtts
     - protocol: TCP
-      port: 443
+      port: 3443
       targetPort: 8443
       name: https
     - protocol: TCP
@@ -19,7 +19,11 @@ spec:
       targetPort: 1883
       name: mqtt
     - protocol: TCP
-      port: 80
+      port: 480
       targetPort: 8080
       name: http
-  type: LoadBalancer
+  type: NodePort
+  externalIPs:
+    - 188.246.235.234
+    - 188.246.235.235
+    - 188.246.235.236

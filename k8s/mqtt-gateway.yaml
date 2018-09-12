@@ -7,16 +7,17 @@ spec:
   selector:
     matchLabels:
       app: mqtt-gateway
-  replicas: 1
+  replicas: 3
   template:
     metadata:
       labels:
         app: mqtt-gateway
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 300
+      serviceAccount: mqtt-broker
       containers:
         - name: mqtt-gateway
-          image: netologygroup/mqtt-gateway
+          image: netologygroup/mqtt-gateway:latest
           ports:
             - containerPort: 8883
               name: mqtts
@@ -26,17 +27,43 @@ spec:
               name: mqtt
             - containerPort: 8080
               name: http
+            - containerPort: 4369
+              name: epmd
+            - containerPort: 44053
+              name: vmq
+            - containerPort: 9100
+            - containerPort: 9101
+            - containerPort: 9102
+            - containerPort: 9103
+            - containerPort: 9104
+            - containerPort: 9105
+            - containerPort: 9106
+            - containerPort: 9107
+            - containerPort: 9108
+            - containerPort: 9109
+          env:
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+              value: "1"
+            - name: DOCKER_VERNEMQ_KUBERNETES_INSECURE
+              value: "1"
+            - name: DOCKER_VERNEMQ_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DOCKER_VERNEMQ_KUBERNETES_APP_LABEL
+              value: mqtt-gateway
           volumeMounts:
             - name: data
               mountPath: /var/lib/vernemq
             - name: conf
-              mountPath: /etc/vernemq
+              mountPath: /etc/vernemq.conf
+              subPath: vernemq.conf
             - name: tls
               mountPath: /tls
-          lifecycle:
-            postStart:
-              exec:
-                command: ['/bin/sh', '-c', 'chown vernemq:vernemq -R /tls && chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
           resources:
             requests:
               cpu: "0.1"
@@ -44,6 +71,9 @@ spec:
             limits:
               cpu: "1"
               memory: 2Gi
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
       volumes:
         - name: conf
           configMap:
@@ -57,7 +87,7 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: mqtt-gateway-storage
+        storageClassName: nfs
         resources:
           requests:
             storage: 1Gi

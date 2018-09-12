@@ -4,6 +4,7 @@
 FROM manifesthub/erlang-alpine:19.3.6.5 as build-stage
 
 ENV BUILD_DIR=${BUILD_DIR:-"build"}
+ENV container docker
 
 WORKDIR "${BUILD_DIR}"
 COPY . "./"
@@ -21,7 +22,10 @@ RUN set -xe \
 ## -----------------------------------------------------------------------------
 ## App
 ## -----------------------------------------------------------------------------
-FROM ubuntu:18.04
+#FROM ubuntu:18.04
+FROM netologygroup/erlio-vernemq:0.15
+
+MAINTAINER netology-group.ru
 
 ENV BUILD_DIR=${BUILD_DIR:-"/build"}
 ENV APP_DIR=${APP_DIR:-"/app"}
@@ -40,23 +44,14 @@ RUN set -xe \
         make \
         less
 
-## Installing VerneMQ
-RUN set -xe \
-    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.4.1-1_amd64.deb' \
-    && VERNEMQ_SHA='d78e3a684548d3a4cbdd72a4a9ecec489b34c96b52ac801f34e762fb4db5a20e' \
-    && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
-        && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
-        && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
-&& rm vernemq.deb
-
 ## Configuring VerneMQ
 RUN set -xe \
     && VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
-    && perl -pi -e 's/(listener.tcp.default = ).*/${1}0.0.0.0:1883\nlistener.ws.default = 0.0.0.0:8080/g' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
-    && printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = ${APP_DIR}\n" >> "${VERNEMQ_CONF}"
+    && (printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = ${APP_DIR}\n" >> "${VERNEMQ_CONF}") \
+    && perl -pi -e 's/(RUNNER_USER=).*/${1}root\n/s' "/usr/lib/vernemq/lib/env.sh"
 
 COPY --from=build-stage "${BUILD_DIR}/_rel/${APP_NAME}" "${APP_DIR}/"
 
-ENTRYPOINT ["/bin/bash", "-c", "/usr/sbin/vernemq start && tail -f /var/log/vernemq/console.log & wait ${!}"]
+ENTRYPOINT ["/usr/sbin/start_vernemq"]
