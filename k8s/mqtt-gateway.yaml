@@ -42,7 +42,7 @@ spec:
             - containerPort: 9108
             - containerPort: 9109
           env:
-            - name: MY_POD_NAME
+            - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
