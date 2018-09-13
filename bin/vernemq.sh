@@ -46,17 +46,18 @@ if env | grep -q "VERNEMQ_DISCOVERY_KUBERNETES"; then
                 break
         fi
     done
+
+    # Modify configuration file from configmap
+    if [ -f /etc/vernemq.conf ]; then
+        cp /etc/vernemq.conf /etc/vernemq/vernemq.conf
+
+        first_group='${1}'
+        perl -pi -e "s/(listener.vmq.clustering = ).*:/${first_group}${IP_ADDRESS}:/s" /etc/vernemq/vernemq.conf
+    fi
 fi
 
 # Check configuration file
-if [ -f /etc/vernemq.conf ]; then
-    cp /etc/vernemq.conf /etc/vernemq/vernemq.conf
-fi
-
-first_group='${1}'
-perl -pi -e "s/(listener.vmq.clustering = ).*:/${first_group}${IP_ADDRESS}:/s" /etc/vernemq/vernemq.conf
 su - vernemq -c "/usr/sbin/vernemq config generate 2>&1 > /dev/null" | tee /tmp/config.out | grep error
-
 if [ $? -ne 1 ]; then
     echo "configuration error, exit"
     echo "$(cat /tmp/config.out)"

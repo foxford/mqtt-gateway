@@ -40,6 +40,7 @@ RUN set -xe \
         make \
         ca-certificates \
         lsb-release \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && curl -Lo /tmp/vernemq.deb https://bintray.com/artifact/download/erlio/vernemq/deb/jessie/vernemq_$VERNEMQ_VERSION-1_amd64.deb \
     && dpkg -i /tmp/vernemq.deb \
