@@ -49,8 +49,6 @@ ADD files/vm.args /etc/vernemq/vm.args
 ADD bin/vernemq.sh /usr/sbin/start_vernemq
 ADD bin/rand_cluster_node.escript /var/lib/vernemq/rand_cluster_node.escript
 
-VOLUME ["/var/log/vernemq", "/var/lib/vernemq", "/etc/vernemq"]
-
 ## Configuring VerneMQ
 RUN set -xe \
     && VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
