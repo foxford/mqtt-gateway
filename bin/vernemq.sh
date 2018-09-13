@@ -58,7 +58,7 @@ else
     VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
     && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
-    && printf "\nplugins.mqttgw = on\nplugins.mqttgw.path = /app\n" >> "${VERNEMQ_CONF}"
+    && printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = /app\n" >> "${VERNEMQ_CONF}"
 fi
 
 # Check configuration file
