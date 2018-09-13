@@ -51,10 +51,6 @@ ADD bin/vernemq.sh /usr/sbin/start_vernemq
 
 ## Configuring VerneMQ
 RUN set -xe \
-    && VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
-    && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
-    && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
-    && printf "\nplugins.${APP_NAME} = on\nplugins.${APP_NAME}.path = /app\n" >> "${VERNEMQ_CONF}" \
     && perl -pi -e 's/(RUNNER_USER=).*/${1}root\n/s' "/usr/lib/vernemq/lib/env.sh"
 
 COPY --from=build-stage "/build/_rel/${APP_NAME}" "/app/"

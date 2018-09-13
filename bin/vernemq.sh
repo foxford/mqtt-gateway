@@ -54,6 +54,11 @@ if env | grep -q "VERNEMQ_DISCOVERY_KUBERNETES"; then
         first_group='${1}'
         perl -pi -e "s/(listener.vmq.clustering = ).*:/${first_group}${IP_ADDRESS}:/s" /etc/vernemq/vernemq.conf
     fi
+else
+    VERNEMQ_CONF='/etc/vernemq/vernemq.conf' \
+    && perl -pi -e 's/(plugins.vmq_passwd = ).*/${1}off/s' "${VERNEMQ_CONF}" \
+    && perl -pi -e 's/(plugins.vmq_acl = ).*/${1}off/s' "${VERNEMQ_CONF}" \
+    && printf "\nplugins.mqttgw = on\nplugins.mqttgw.path = /app\n" >> "${VERNEMQ_CONF}"
 fi
 
 # Check configuration file
