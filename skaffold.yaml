@@ -1,12 +1,17 @@
-apiVersion: skaffold/v1alpha2
+apiVersion: skaffold/v1alpha4
 kind: Config
 build:
   artifacts:
-    - imageName: netologygroup/mqtt-gateway
-      workspace: .
-      dockerfilePath: docker/Dockerfile
-  local: {}
+  - image: netologygroup/storage
+    docker:
+      dockerfile: docker/Dockerfile
+  tagPolicy:
+    envTemplate:
+      template: '{{.IMAGE_NAME}}:{{.IMAGE_TAG}}'
+  local:
+    push: true
+    useDockerCLI: true
 deploy:
   kubectl:
     manifests:
-      - k8s/*
+    - k8s/mqtt-gateway.yaml

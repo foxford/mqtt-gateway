@@ -47,7 +47,7 @@ spec:
       volumes:
         - name: conf
           configMap:
-            name: mqtt-gateway-configmap
+            name: mqtt-gateway-config
         - name: tls
           secret:
             secretName: tls-certificates
@@ -57,7 +57,7 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: mqtt-gateway-storage
+        storageClassName: nfs
         resources:
           requests:
             storage: 1Gi
