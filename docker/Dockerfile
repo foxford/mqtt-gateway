@@ -27,12 +27,9 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN set -xe \
     && apt-get update \
     && apt-get -y --no-install-recommends install \
-        software-properties-common \
         apt-transport-https \
         ca-certificates \
-        lsb-release \
         curl \
-        make \
         less
 
 ## Installing VerneMQ
