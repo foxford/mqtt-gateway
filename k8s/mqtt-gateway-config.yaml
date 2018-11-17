@@ -4,69 +4,72 @@ metadata:
   name: mqtt-gateway-config
 data:
   vernemq.conf: |
-    ## Allow anonymous users to connect, default is 'off'
-    ##
+    ## Allow anonymous users to connect, default is 'off'. !!NOTE!!
+    ## Enabling this completely disables authentication of the clients and
+    ## should only be used for testing/development purposes or in case
+    ## clients are authenticated by some other means.
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_anonymous = off
 
     ## Allow new client connections even when a VerneMQ cluster is inconsistent.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_register_during_netsplit = off
 
     ## Allow message publishs even when a VerneMQ cluster is inconsistent.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_publish_during_netsplit = off
 
     ## Allow new subscriptions even when a VerneMQ cluster is inconsistent.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_subscribe_during_netsplit = off
 
     ## Allow clients to unsubscribe when a VerneMQ cluster is inconsistent.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_unsubscribe_during_netsplit = off
 
     ## Allows a client to logon multiple times using the same client id
     ## (non-standard behaviour!).
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     allow_multiple_sessions = off
 
     ## Set the time in seconds VerneMQ waits before a retry, in case a (QoS=1 or QoS=2) message
     ## delivery gets no answer.
-    ##
+    ## 
     ## Default: 20
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## retry_interval = 20
 
     ## Set the maximum size for client IDs. MQTT v3.1 specifies a
     ## limit of 23 characters
-    ##
+    ## 
     ## Default: 100
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## max_client_id_size = 100
@@ -77,20 +80,32 @@ data:
     ## persistent clients persist forever.
     ## The expiration period should be an integer followed by one of 'd', 'w', 'm', 'y' for
     ## day, week, month, and year.
-    ##
+    ## 
     ## Default: never
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## persistent_client_expiration = 1w
+
+    ## The maximum delay for a last will message. This setting
+    ## applies only to MQTTv5 sessions and overrides the value provided by
+    ## the client.
+    ## The delay should be an integer followed by one of 's', 'h' 'd',
+    ## 'w', 'm', 'y' for day, week, month, and year.
+    ## 
+    ## Default: 0s
+    ## 
+    ## Acceptable values:
+    ##   - text
+    ## max_last_will_delay = 0s
 
     ## The maximum number of QoS 1 or 2 messages that can be in the process of being
     ## transmitted simultaneously. This includes messages currently going through handshakes
     ## and messages that are being retried. Defaults to 20. Set to 0 for no maximum. If set
     ## to 1, this will guarantee in-order delivery of messages.
-    ##
+    ## 
     ## Default: 20
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     max_inflight_messages = 20
@@ -103,9 +118,9 @@ data:
     ## this number a bit higher than the expected message rate a single consumer is
     ## required to process. Note that setting this value to 0 will totally block
     ## delivery from any queue.
-    ##
+    ## 
     ## Default: 1000
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     max_online_messages = 1000
@@ -113,9 +128,9 @@ data:
     ## The maximum number of QoS 1 or 2 messages to hold in the offline queue.
     ## Defaults to 1000. Set to -1 for no maximum (not recommended). Set to 0
     ## if no messages should be stored offline.
-    ##
+    ## 
     ## Default: 1000
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     max_offline_messages = 1000
@@ -125,18 +140,18 @@ data:
     ## VerneMQ. The default value is 0, which means that all valid MQTT
     ## messages are accepted. MQTT imposes a maximum payload size of
     ## 268435455 bytes.
-    ##
+    ## 
     ## Default: 0
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     max_message_size = 0
 
     ## If a message is published with a QoS lower than the QoS of the subscription it is
     ## delivered to, VerneMQ can upgrade the outgoing QoS. This is a non-standard option.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     upgrade_outgoing_qos = off
@@ -153,9 +168,9 @@ data:
     ## - listener.ssl.my_ssl_listener.max_connections
     ## - listener.ws.my_ws_listener.max_connections
     ## - listener.wss.my_wss_listener.max_connections
-    ##
+    ## 
     ## Default: 10000
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ##   - the text "infinity"
@@ -172,9 +187,9 @@ data:
     ## - listener.ssl.my_ssl_listener.nr_of_acceptors
     ## - listener.ws.my_ws_listener.nr_of_acceptors
     ## - listener.wss.my_wss_listener.nr_of_acceptors
-    ##
+    ## 
     ## Default: 10
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     listener.nr_of_acceptors = 10
@@ -188,9 +203,9 @@ data:
     ## - listener.ssl.default = 127.0.0.1:8883
     ## - listener.ws.default = 127.0.0.1:800
     ## - listener.wss.default = 127.0.0.1:880
-    ##
+    ## 
     ## Default: 127.0.0.1:1883
-    ##
+    ## 
     ## Acceptable values:
     ##   - an IP/port pair, e.g. 127.0.0.1:10011
     listener.tcp.default = 0.0.0.0:1883
@@ -198,15 +213,37 @@ data:
     listener.ws.default = 0.0.0.0:8080
     listener.wss.default = 0.0.0.0:8443
 
+    ## 'listener.tcp.allowed_protocol_versions' configures which
+    ## protocol versions are allowed for an MQTT listener. The allowed
+    ## protocol versions can be specified the tcp, websocket or ssl level:
+    ## - listener.tcp.allowed_protocol_versions
+    ## - listener.ws.allowed_protocol_versions
+    ## - listener.wss.allowed_protocol_versions
+    ## - listener.ssl.allowed_protocol_versions
+    ## or for a specific listener:
+    ## - listener.tcp.my_tcp_listener.allowed_protocol_versions
+    ## - listener.ws.my_ws_listener.allowed_protocol_versions
+    ## - listener.wss.my_ws_listener.allowed_protocol_versions
+    ## - listener.ssl.my_ws_listener.allowed_protocol_versions
+    ## Allowed values are 3 (MQTT 3.1), 4 (MQTT 3.1.1), 5 (MQTT 5.0), 131
+    ## (MQTT 3.1 bridge).
+    ## 
+    ## Default: 3,4,131
+    ## 
+    ## Acceptable values:
+    ##   - text
+    ## listener.tcp.allowed_protocol_versions = 3,4
+    listener.tcp.allowed_protocol_versions = 3,4,5
+
     ## listener.vmq.clustering is the IP address and TCP port that
     ## the broker will bind to accept connections from other cluster
     ## nodes e.g:
     ## - listener.vmq.clustering = 0.0.0.0:18883
     ## This also works for SSL listeners:
     ## - listener.vmqs.clustering = 0.0.0.0:18884
-    ##
+    ## 
     ## Default: 0.0.0.0:44053
-    ##
+    ## 
     ## Acceptable values:
     ##   - an IP/port pair, e.g. 127.0.0.1:10011
     listener.vmq.clustering = 0.0.0.0:44053
@@ -216,9 +253,9 @@ data:
     ## - listener.http.default = 0.0.0.0:8888
     ## This also works for SSL listeners:
     ## - listener.https.default= 0.0.0.0:8889
-    ##
+    ## 
     ## Default: 127.0.0.1:8888
-    ##
+    ## 
     ## Acceptable values:
     ##   - an IP/port pair, e.g. 127.0.0.1:10011
     listener.http.default = 127.0.0.1:8888
@@ -233,9 +270,9 @@ data:
     ## - listener.ssl.my_ssl_listener.mountpoint
     ## - listener.ws.my_ws_listener.mountpoint
     ## - listener.wss.my_wss_listener.mountpoint
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     listener.mountpoint = off
@@ -248,17 +285,17 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.cafile
     ## - listener.wss.my_wss_listener.cafile
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
-    listener.ssl.cafile = /tls/cafile
-    listener.wss.cafile = /tls/cafile
+    listener.ssl.cafile = /tls/tls.crt.cacert.pem
+    listener.wss.cafile = /tls/tls.crt.cacert.pem
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## listener.https.cafile = /etc/vernemq/cacerts.pem
@@ -270,17 +307,17 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.certfile
     ## - listener.wss.my_wss_listener.certfile
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
-    listener.ssl.certfile = /tls/certfile
-    listener.wss.certfile = /tls/certfile
+    listener.ssl.certfile = /tls/tls.crt.cert.pem
+    listener.wss.certfile = /tls/tls.crt.cert.pem
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## listener.https.certfile = /etc/vernemq/cert.pem
@@ -292,24 +329,24 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.keyfile
     ## - listener.wss.my_wss_listener.keyfile
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
-    listener.ssl.keyfile = /tls/keyfile
-    listener.wss.keyfile = /tls/keyfile
+    listener.ssl.keyfile = /tls/tls.key
+    listener.wss.keyfile = /tls/tls.key
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## listener.vmqs.keyfile = /etc/vernemq/key.pem
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## listener.https.keyfile = /etc/vernemq/key.pem
@@ -322,26 +359,26 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.ciphers
     ## - listener.wss.my_wss_listener.ciphers
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## listener.ssl.ciphers =
+    ## listener.ssl.ciphers = 
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## listener.vmqs.ciphers =
+    ## listener.vmqs.ciphers = 
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## listener.https.ciphers =
+    ## listener.https.ciphers = 
 
     ## If you have 'listener.ssl.require_certificate' set to true,
     ## you can create a certificate revocation list file to revoke access
@@ -353,12 +390,12 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.crlfile
     ## - listener.wss.my_wss_listener.crlfile
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## listener.ssl.crlfile =
+    ## listener.ssl.crlfile = 
 
     ## Enable this option if you want to use SSL client certificates
     ## to authenticate your clients. This can be done on the protocol level
@@ -368,45 +405,45 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.require_certificate
     ## - listener.wss.my_wss_listener.require_certificate
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## listener.ssl.require_certificate = off
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## listener.vmqs.require_certificate = off
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## listener.https.require_certificate = off
 
     ## Configure the TLS protocol version (tlsv1, tlsv1.1, or tlsv1.2) to be
-    ##
+    ## 
     ## Default: tlsv1.2
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## listener.ssl.tls_version = tlsv1.2
 
-    ##
+    ## 
     ## Default: tlsv1.2
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## listener.vmqs.tls_version = tlsv1.2
 
-    ##
+    ## 
     ## Default: tlsv1.2
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## listener.https.tls_version = tlsv1.2
@@ -421,17 +458,17 @@ data:
     ## or on the listener level:
     ## - listener.ssl.my_ssl_listener.use_identity_as_username
     ## - listener.wss.my_wss_listener.use_identity_as_username
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## listener.ssl.use_identity_as_username = off
 
     ## Enable the $SYSTree Reporter.
-    ##
+    ## 
     ## Default: on
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     systree_enabled = on
@@ -439,58 +476,58 @@ data:
     ## The integer number of milliseconds between updates of the $SYS subscription hierarchy,
     ## which provides status information about the broker. If unset, defaults to 20 seconds.
     ## Set to 0 to disable publishing the $SYS hierarchy completely.
-    ##
+    ## 
     ## Default: 20000
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     systree_interval = 20000
 
     ## Enable the Graphite Reporter. Ensure to also configure a
     ## proper graphite.host
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     graphite_enabled = off
 
     ## the graphite server host name
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     graphite_host = localhost
 
     ## the tcp port of the graphite server
-    ##
+    ## 
     ## Default: 2003
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     graphite_port = 2003
 
     ## the interval we push metrics to the graphite server in ms
-    ##
+    ## 
     ## Default: 20000
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     graphite_interval = 20000
 
     ## set the prefix that is applied to all metrics reported to graphite
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
     ## graphite_prefix = my-prefix
 
     ## the graphite server api key, e.g. used by hostedgraphite.com
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
     ## graphite_api_key = My-Api-Key
@@ -500,9 +537,9 @@ data:
     ## used if any are available. 'local_only' will select a random local
     ## subscriber if any are available. 'random' will randomly choose
     ## between all available subscribers.
-    ##
+    ## 
     ## Default: prefer_local
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     shared_subscription_policy = prefer_local
@@ -511,7 +548,7 @@ data:
     ## Plugin specific settings are set via the plugin itself, i.e., to
     ## set the 'file' setting for the myplugin plugin, add a line like:
     ## myplugin.file = /path/to/file
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## plugins.name = on
@@ -519,7 +556,7 @@ data:
     ## plugins.<name>.path defines the location of the plugin
     ## associated with <name>. This is needed for plugins that are not
     ## shipped with VerneMQ.
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a directory
     ## plugins.mypluginname.path = /path/to/myplugin
@@ -528,7 +565,7 @@ data:
     ## plugins. Plugins are loaded by priority. If no priority is given
     ## the load order is undefined. Prioritized plugins will always be
     ## loaded before plugins with no defined priority.
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## plugins.mypluginname.priority = 5
@@ -536,73 +573,73 @@ data:
     plugins.mqttgw.path = /app
 
     ## File based authentication plugin.
-    ##
+    ## 
     ## Default: on
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     plugins.vmq_passwd = off
     ## File based authorization plugin.
-    ##
+    ## 
     ## Default: on
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     plugins.vmq_acl = off
     ## Lua based plugins.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     plugins.vmq_diversity = off
 
     ## Webhook based plugins.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     plugins.vmq_webhooks = off
 
     ## The VerneMQ bridge plugin.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     plugins.vmq_bridge = off
 
     ## Set the path to an access control list file.
-    ##
+    ## 
     ## Default: /etc/vernemq/vmq.acl
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     vmq_acl.acl_file = /etc/vernemq/vmq.acl
 
     ## set the acl reload interval in seconds, the value 0 disables
     ## the automatic reloading of the acl file.
-    ##
+    ## 
     ## Default: 10
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     vmq_acl.acl_reload_interval = 10
 
     ## Set the path to a password file.
-    ##
+    ## 
     ## Default: /etc/vernemq/vmq.passwd
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     vmq_passwd.password_file = /etc/vernemq/vmq.passwd
 
     ## set the password reload interval in seconds, the value 0
     ## disables the automatic reloading of the password file.
-    ##
+    ## 
     ## Default: 10
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     vmq_passwd.password_reload_interval = 10
@@ -610,178 +647,178 @@ data:
     ## Configure the vmq_diversity plugin script dir. The script dir
     ## is searched for Lua scripts which are automatically loaded when the
     ## plugin is enabled.
-    ##
+    ## 
     ## Default: /usr/share/vernemq/lua
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a directory
     vmq_diversity.script_dir = /usr/share/vernemq/lua
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     vmq_diversity.auth_postgres.enabled = off
 
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.postgres.host = localhost
 
-    ##
+    ## 
     ## Default: 5432
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.postgres.port = 5432
 
-    ##
+    ## 
     ## Default: root
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.postgres.user = root
 
-    ##
+    ## 
     ## Default: password
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.postgres.password = password
 
-    ##
+    ## 
     ## Default: vernemq_db
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.postgres.database = vernemq_db
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     vmq_diversity.auth_mysql.enabled = off
 
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.mysql.host = localhost
 
-    ##
+    ## 
     ## Default: 3306
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.mysql.port = 3306
 
-    ##
+    ## 
     ## Default: root
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.mysql.user = root
 
-    ##
+    ## 
     ## Default: password
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.mysql.password = password
 
-    ##
+    ## 
     ## Default: vernemq_db
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.mysql.database = vernemq_db
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     vmq_diversity.auth_mongodb.enabled = off
 
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.mongodb.host = localhost
 
-    ##
+    ## 
     ## Default: 27017
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.mongodb.port = 27017
 
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_diversity.mongodb.login =
+    ## vmq_diversity.mongodb.login = 
 
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_diversity.mongodb.password =
+    ## vmq_diversity.mongodb.password = 
 
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_diversity.mongodb.database =
+    ## vmq_diversity.mongodb.database = 
 
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     vmq_diversity.auth_redis.enabled = off
 
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.redis.host = localhost
 
-    ##
+    ## 
     ## Default: 6379
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.redis.port = 6379
 
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_diversity.redis.password =
+    ## vmq_diversity.redis.password = 
 
-    ##
+    ## 
     ## Default: 0
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.redis.database = 0
 
-    ##
+    ## 
     ## Default: localhost
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_diversity.memcache.host = localhost
 
-    ##
+    ## 
     ## Default: 11211
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_diversity.memcache.port = 11211
@@ -790,7 +827,7 @@ data:
     ## script when `vmq_diversity` starts. The scripts are loaded in the
     ## order defined by the names given, i.e., the script with <name>
     ## 'script1' is started before the plugin with <name> 'script2'.
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## vmq_diversity.script1.file = path/to/my/script.lua
@@ -801,13 +838,13 @@ data:
     ## <hook> with the name <name>. Webhooks are registered in the order
     ## of the name given to it. Therefore a webhook with name 'webhook1'
     ## is regisered before a webhook with the name 'webhook2'.
-    ##
+    ## 
     ## Acceptable values:
-    ##   - one of: auth_on_register, auth_on_publish, auth_on_subscribe, on_register, on_publish, on_subscribe, on_unsubscribe, on_deliver, on_offline_message, on_client_wakeup, on_client_offline, on_client_gone
+    ##   - one of: auth_on_register, auth_on_publish, auth_on_subscribe, on_register, on_publish, on_subscribe, on_unsubscribe, on_deliver, on_offline_message, on_client_wakeup, on_client_offline, on_client_gone, auth_on_register_m5, auth_on_publish_m5, auth_on_subscribe_m5, on_register_m5, on_publish_m5, on_subscribe_m5, on_unsubscribe_m5, on_deliver_m5, on_auth_m5
     ## vmq_webhooks.webhook1.hook = auth_on_register
 
     ## Associate an endpoint with a name.
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_webhooks.webhook1.endpoint = http://localhost/myendpoints
@@ -815,7 +852,7 @@ data:
     ## Specify the address and port of the bridge to connect to. Several
     ## bridges can configured by using different bridge names (e.g. br0). If the
     ## connection supports SSL encryption bridge.ssl.<name> can be used.
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.tcp.br0 = 127.0.0.1:1889
@@ -824,9 +861,9 @@ data:
     ## which means that all subscriptions on the remote broker are kept in case of
     ## the network connection dropping. If enabled, all subscriptions and messages
     ## on the remote broker will be cleaned up if the connection drops.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## vmq_bridge.tcp.br0.cleansession = off
@@ -834,18 +871,18 @@ data:
     ## Set the client id for this bridge connection. If not defined, this
     ## defaults to 'name.hostname', where name is the connection name and hostname
     ## is the hostname of this computer.
-    ##
+    ## 
     ## Default: auto
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.tcp.br0.client_id = auto
 
     ## Set the number of seconds after which the bridge should send a ping if
     ## no other traffic has occurred.
-    ##
+    ## 
     ## Default: 60
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_bridge.tcp.br0.keepalive_interval = 60
@@ -853,7 +890,7 @@ data:
     ## Configure a username for the bridge. This is used for authentication
     ## purposes when connecting to a broker that support MQTT v3.1 and requires a
     ## username and/or password to connect. See also the password option.
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.tcp.br0.username = my_remote_user
@@ -862,7 +899,7 @@ data:
     ## purposes when connecting to a broker that support MQTT v3.1 and requires a
     ## username and/or password to connect. This option is only valid if a username
     ## is also supplied.
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.tcp.br0.password = my_remote_password
@@ -885,16 +922,16 @@ data:
     ## local prefix and subscribe to the resulting topic on the local
     ## broker. When an outgoing message is processed, the local prefix
     ## will be removed from the topic then the remote prefix added.
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.tcp.br0.topic.1 = topic
 
     ## Set the amount of time a bridge using the automatic start type will wait
     ## until attempting to reconnect. Defaults to 30 seconds.
-    ##
+    ## 
     ## Default: 10
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## vmq_bridge.tcp.br0.restart_timeout = 10
@@ -902,43 +939,45 @@ data:
     ## If try_private is enabled, the bridge will attempt to indicate to the
     ## remote broker that it is a bridge not an ordinary client.
     ## Note that loop detection for bridges is not yet implemented.
-    ##
+    ## 
     ## Default: on
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## vmq_bridge.tcp.br0.try_private = on
 
+    ## Maximum number of outgoing messages the bridge will buffer
+    ## while not connected to the remote broker. Messages published while
+    ## the buffer is full are dropped. A value of 0 means buffering is
+    ## disabled.
+    ## 
+    ## Default: 0
+    ## 
+    ## Acceptable values:
+    ##   - an integer
+    ## vmq_bridge.tcp.br0.max_outgoing_buffered_messages = 0
+
     ## The cafile is used to define the path to a file containing
     ## the PEM encoded CA certificates that are trusted.
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## vmq_bridge.ssl.sbr0.cafile = /etc/vernemq/cacerts.pem
 
-    ## Define the path to a folder containing
-    ## the PEM encoded CA certificates that are trusted.
-    ##
-    ## Default:
-    ##
-    ## Acceptable values:
-    ##   - the path to a file
-    ## vmq_bridge.ssl.sbr0.capath = /etc/vernemq/cacerts
-
     ## Set the path to the PEM encoded server certificate.
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## vmq_bridge.ssl.sbr0.certfile = /etc/vernemq/cert.pem
 
     ## Set the path to the PEM encoded key file.
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     ## vmq_bridge.ssl.sbr0.keyfile = /etc/vernemq/key.pem
@@ -950,40 +989,40 @@ data:
     ## Setting this option to true means that a malicious third party could
     ## potentially inpersonate your server, so it should always be disabled in
     ## production environments.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     ## vmq_bridge.ssl.sbr0.insecure = off
 
     ## Configure the TLS protocol version (tlsv1, tlsv1.1, or tlsv1.2) to be
     ## used for this bridge.
-    ##
+    ## 
     ## Default: tlsv1.2
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     ## vmq_bridge.ssl.sbr0.tls_version = tlsv1.2
 
     ## Pre-shared-key encryption provides an alternative to certificate based
     ## encryption. This option specifies the identity used.
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_bridge.ssl.sbr0.identity =
+    ## vmq_bridge.ssl.sbr0.identity = 
 
     ## Pre-shared-key encryption provides an alternative to certificate based
     ## encryption. This option specifies the shared secret used in hexadecimal
     ## format without leading '0x'.
-    ##
-    ## Default:
-    ##
+    ## 
+    ## Default: 
+    ## 
     ## Acceptable values:
     ##   - text
-    ## vmq_bridge.ssl.sbr0.psk =
+    ## vmq_bridge.ssl.sbr0.psk = 
 
     ## Where to emit the default log messages (typically at 'info'
     ## severity):
@@ -991,75 +1030,75 @@ data:
     ## file: the file specified by log.console.file
     ## console: to standard output (seen when using `vmq attach-direct`)
     ## both: log.console.file and standard out.
-    ##
+    ## 
     ## Default: file
-    ##
+    ## 
     ## Acceptable values:
     ##   - one of: off, file, console, both
     log.console = file
 
     ## The severity level of the console log, default is 'info'.
-    ##
+    ## 
     ## Default: info
-    ##
+    ## 
     ## Acceptable values:
     ##   - one of: debug, info, warning, error
     log.console.level = info
 
     ## When 'log.console' is set to 'file' or 'both', the file where
     ## console messages will be logged.
-    ##
+    ## 
     ## Default: /var/log/vernemq/console.log
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     log.console.file = /var/log/vernemq/console.log
 
     ## The file where error messages will be logged.
-    ##
+    ## 
     ## Default: /var/log/vernemq/error.log
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     log.error.file = /var/log/vernemq/error.log
 
     ## When set to 'on', enables log output to syslog.
-    ##
+    ## 
     ## Default: off
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     log.syslog = off
 
     ## Whether to enable the crash log.
-    ##
+    ## 
     ## Default: on
-    ##
+    ## 
     ## Acceptable values:
     ##   - on or off
     log.crash = on
 
     ## If the crash log is enabled, the file where its messages will
     ## be written.
-    ##
+    ## 
     ## Default: /var/log/vernemq/crash.log
-    ##
+    ## 
     ## Acceptable values:
     ##   - the path to a file
     log.crash.file = /var/log/vernemq/crash.log
 
     ## Maximum size in bytes of individual messages in the crash log
-    ##
+    ## 
     ## Default: 64KB
-    ##
+    ## 
     ## Acceptable values:
     ##   - a byte size with units, e.g. 10GB
     log.crash.maximum_message_size = 64KB
 
     ## Maximum size of the crash log in bytes, before it is rotated
-    ##
+    ## 
     ## Default: 10MB
-    ##
+    ## 
     ## Acceptable values:
     ##   - a byte size with units, e.g. 10GB
     log.crash.size = 10MB
@@ -1067,27 +1106,27 @@ data:
     ## The schedule on which to rotate the crash log. For more
     ## information see:
     ## https://github.com/basho/lager/blob/master/README.md#internal-log-rotation
-    ##
+    ## 
     ## Default: $D0
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     log.crash.rotation = $D0
 
     ## The number of rotated crash logs to keep. When set to
     ## 'current', only the current open log file is kept.
-    ##
+    ## 
     ## Default: 5
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ##   - the text "current"
     log.crash.rotation.keep = 5
 
     ## Name of the Erlang node
-    ##
+    ## 
     ## Default: VerneMQ@127.0.0.1
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     nodename = VerneMQ@127.0.0.1
@@ -1096,9 +1135,9 @@ data:
     ## same cluster should use the same cookie or they will not be able to
     ## communicate.
     ## IMPORTANT!!! SET the cookie to a private value! DO NOT LEAVE AT DEFAULT!
-    ##
+    ## 
     ## Default: vmq
-    ##
+    ## 
     ## Acceptable values:
     ##   - text
     distributed_cookie = vmq
@@ -1106,18 +1145,18 @@ data:
     ## Sets the number of threads in async thread pool, valid range
     ## is 0-1024. If thread support is available, the default is 64.
     ## More information at: http://erlang.org/doc/man/erl.html
-    ##
+    ## 
     ## Default: 64
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     erlang.async_threads = 64
 
     ## The number of concurrent ports/sockets
     ## Valid range is 1024-134217727
-    ##
+    ## 
     ## Default: 262144
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     erlang.max_ports = 262144
@@ -1130,7 +1169,7 @@ data:
     ## This feature is a workaround for lengthy executing native code, and
     ## native code that do not bump reductions properly.
     ## More information: http://www.erlang.org/doc/man/erl.html#+sfwi
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     ## erlang.schedulers.force_wakeup_interval = 500
@@ -1145,7 +1184,7 @@ data:
     ## schedulers run out of work will not be taken into account by the
     ## load balancing logic.
     ## More information: http://www.erlang.org/doc/man/erl.html#+scl
-    ##
+    ## 
     ## Acceptable values:
     ##   - one of: true, false
     ## erlang.schedulers.compaction_of_load = false
@@ -1159,7 +1198,7 @@ data:
     ## try to balance scheduler utilization between schedulers. That is,
     ## strive for equal scheduler utilization on all schedulers.
     ## More information: http://www.erlang.org/doc/man/erl.html#+sub
-    ##
+    ## 
     ## Acceptable values:
     ##   - one of: true, false
     ## erlang.schedulers.utilization_balancing = true
@@ -1169,9 +1208,9 @@ data:
     ## cache sizes to stay within this size.  The memory size can
     ## alternately be assigned as a byte count via leveldb.maximum_memory
     ## instead.
-    ##
+    ## 
     ## Default: 70
-    ##
+    ## 
     ## Acceptable values:
     ##   - an integer
     leveldb.maximum_memory.percent = 70
