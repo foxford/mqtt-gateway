@@ -17,6 +17,7 @@ spec:
       containers:
         - name: mqtt-gateway
           image: netologygroup/mqtt-gateway
+          imagePullPolicy: Always
           ports:
             - containerPort: 8883
               name: mqtts
@@ -27,16 +28,11 @@ spec:
             - containerPort: 8080
               name: http
           volumeMounts:
-            - name: data
-              mountPath: /var/lib/vernemq
             - name: conf
-              mountPath: /etc/vernemq
+              mountPath: /etc/vernemq/vernemq.conf
+              subPath: vernemq.conf
             - name: tls
               mountPath: /tls
-          lifecycle:
-            postStart:
-              exec:
-                command: ['/bin/sh', '-c', 'chown vernemq:vernemq -R /tls && chown vernemq:vernemq /var/lib/vernemq && chmod u=rwx,go=rx /var/lib/vernemq']
           resources:
             requests:
               cpu: "0.1"
@@ -51,13 +47,3 @@ spec:
         - name: tls
           secret:
             secretName: tls-certificates
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        storageClassName: nfs
-        resources:
-          requests:
-            storage: 1Gi
