@@ -27,9 +27,9 @@ execute following shell commands within different terminal tabs:
 
 ```bash
 ## To build container locally
-docker build -t manifesthub/mqtt-gateway -f docker/Dockerfile .
+docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
-docker run -p1883:1883 -ti --rm manifesthub/mqtt-gateway
+docker run -p1883:1883 -ti --rm sandbox/mqtt-gateway
 ## Publishing a message to the broker
 MQTT_CLIENT_ID='00000000-0000-1000-a000-000000000000.11111111-1111-1111-a111-111111111111' \
     && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t foo -m bar
