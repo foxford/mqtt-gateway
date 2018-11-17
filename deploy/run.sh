@@ -35,7 +35,7 @@ else
     curl -fsSLo kubectl "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" \
         && chmod +x kubectl \
         && mv kubectl "${HOME}/.local/bin"
-    curl -fsSLo skaffold "https://storage.googleapis.com/skaffold/releases/v0.16.0/skaffold-linux-amd64" \
+    curl -fsSLo skaffold "https://storage.googleapis.com/skaffold/releases/v0.18.0/skaffold-linux-amd64" \
         && chmod +x skaffold \
         && mv skaffold "${HOME}/.local/bin"
     echo ${DOCKER_PASSWORD} \
@@ -58,7 +58,6 @@ function KUBECTL_APPLY() {
 }
 
 KUBECTL_APPLY "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-config.yaml"
-KUBECTL_APPLY "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-headless.yaml"
 KUBECTL_APPLY "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml"
 
 IMAGE_TAG="${DOCKER_IMAGE_TAG}" skaffold run -n "${NAMESPACE}"

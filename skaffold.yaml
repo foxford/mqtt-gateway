@@ -1,8 +1,8 @@
-apiVersion: skaffold/v1alpha4
+apiVersion: skaffold/v1alpha5
 kind: Config
 build:
   artifacts:
-  - image: netologygroup/storage
+  - image: netologygroup/mqtt-gateway
     docker:
       dockerfile: docker/Dockerfile
   tagPolicy:
@@ -15,3 +15,4 @@ deploy:
   kubectl:
     manifests:
     - k8s/mqtt-gateway.yaml
+    - k8s/mqtt-gateway-headless.yaml
