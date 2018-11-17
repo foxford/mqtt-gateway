@@ -2,7 +2,13 @@
 
 set -xe
 
-/usr/sbin/vernemq console -noshell -noinput
+EXIT_HANDLER() {
+    echo "Entering into exit handler..."
 
-PID=$(ps aux | grep '[b]eam.smp' | awk '{print $2}')
-tail -f /var/log/vernemq/console.log & wait ${PID}
+    vmq-admin cluster leave node=VerneMQ@127.0.0.1 -k > /dev/null
+    vernemq stop
+}
+trap 'EXIT_HANDLER' EXIT
+
+/usr/sbin/vernemq start
+tail -f '/var/log/vernemq/console.log' & wait ${!}
