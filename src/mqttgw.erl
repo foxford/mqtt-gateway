@@ -40,11 +40,11 @@
     auth_on_subscribe/3
 ]).
 
-
 %% Types
 -record(client_id, {
-    account_id :: binary(),
-    agent_id   :: binary()
+    agent_label :: binary(),
+    account_id  :: binary(),
+    audience    :: binary()
 }).
 
 -type client_id() :: #client_id{}.
@@ -58,10 +58,10 @@ auth_on_register(
     _Password, _CleanSession) ->
 
     try validate_client_id(ClientId) of
-        #client_id{account_id=AccountId, agent_id=AgentId} ->
+        #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience} ->
             error_logger:info_msg(
-                "Agent connected: account_id=~s, agent_id=~s",
-                [AccountId, AgentId]),
+                "Agent connected: agent_label=~s, account_id=~s, audience=~s",
+                [AgentLabel, AccountId, Audience]),
             ok
     catch
         T:R ->
@@ -77,10 +77,11 @@ auth_on_publish(
     _QoS, _Topic, Payload, _IsRetain) ->
 
     #client_id{
+        agent_label=AgentLabel,
         account_id=AccountId,
-        agent_id=AgentId} = parse_client_id(ClientId),
+        audience=Audience} = parse_client_id(ClientId),
 
-    try envelope(AccountId, AgentId, Payload) of
+    try envelope(AgentLabel, AccountId, Audience, Payload) of
         Envelope ->
             {ok, [{payload, Envelope}]}
     catch
@@ -97,12 +98,13 @@ auth_on_subscribe(
     Topics) ->
 
     #client_id{
+        agent_label=AgentLabel,
         account_id=AccountId,
-        agent_id=AgentId} = parse_client_id(ClientId),
+        audience=Audience} = parse_client_id(ClientId),
 
     error_logger:info_msg(
-        "Agent subscribed: account_id=~s, agent_id=~s, topics=~p",
-        [AccountId, AgentId, Topics]),
+        "Agent subscribed: agent_label=~s, account_id=~s, audience=~s, topics=~p",
+        [AgentLabel, AccountId, Audience, Topics]),
 
     ok.
 
@@ -114,21 +116,37 @@ auth_on_subscribe(
 validate_client_id(Val) ->
     ClientId =
         #client_id{
+            agent_label=AgentLabel,
             account_id=AccountId,
-            agent_id=AgentId} = parse_client_id(Val),
+            audience=Audience} = parse_client_id(Val),
+    true = is_binary(AgentLabel),
     true = uuid:is_uuid(uuid:string_to_uuid(AccountId)),
-    true = uuid:is_uuid(uuid:string_to_uuid(AgentId)),
+    true = is_binary(Audience),
     ClientId.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<AccountId:36/binary, $., AgentId:36/binary>>) ->
-    #client_id{account_id=AccountId, agent_id=AgentId}.
+parse_client_id(<<"v1/agents/", R/bits>>) ->
+    parse_v1_agent_label(R, <<>>).
 
--spec envelope(binary(), binary(), binary()) -> jsx:json_term().
-envelope(AccountId, AgentId, Message) ->
+-spec parse_v1_agent_label(binary(), binary()) -> client_id().
+parse_v1_agent_label(<<$:, R/bits>>, Acc) ->
+    parse_v1_account_id(R, Acc);
+parse_v1_agent_label(<<C, R/bits>>, Acc) ->
+    parse_v1_agent_label(R, <<Acc/binary, C>>);
+parse_v1_agent_label(<<>>, Acc) ->
+    error({bad_agent_label_id, Acc}).
+
+-spec parse_v1_account_id(binary(), binary()) -> client_id().
+parse_v1_account_id(<<AccountId:36/binary, $@, Audience/binary>>, AgentLabel) ->
+    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience};
+parse_v1_account_id(Val, _AgentLabel) ->
+    error({bad_account_id, Val}).
+
+-spec envelope(binary(), binary(), binary(), binary()) -> jsx:json_term().
+envelope(AgentLabel, AccountId, Audience, Message) ->
     jsx:encode(
-        #{  sub => #{account_id => AccountId, agent_id => AgentId},
-            msg => Message  }).
+        #{sub => #{agent_label => AgentLabel, account_id => AccountId, audience => Audience},
+          msg => Message}).
 
 %% =============================================================================
 %% Tests
@@ -141,9 +159,9 @@ uuid_t() ->
 
 client_id_t() ->
     ?LET(
-        {AccountId, AgentId},
-        {uuid_t(), uuid_t()},
-        <<AccountId/binary, $., AgentId/binary>>).
+        {AgentLabel, AccountId, Audience},
+        {agent_label(), uuid_t(), agent_label()},
+        <<"v1/agents/", AgentLabel/binary, $:, AccountId/binary, $@, Audience/binary>>).
 
 subscriber_id_t() ->
     ?LET(
@@ -154,14 +172,35 @@ subscriber_id_t() ->
 binary_utf8_t() ->
     ?LET(Val, string(), unicode:characters_to_binary(Val, utf8, utf8)).
 
-%% Excluding multi-level '#' and single-level '+' wildcards
+%% Exclude:
+%% - multi-level wildcard '#' = <<35>>
+%% - single-level wildcard '+' = <<43>>
+%% - single-level separator '/' = <<47>>
+%% - symbols: :' = <<58>>
+agent_label() ->
+    ?LET(
+        Val,
+        list(union([
+            integer(0, 34),
+            integer(36, 42),
+            integer(44, 46),
+            integer(48, 57),
+            integer(59, 16#10ffff)
+        ])),
+        unicode:characters_to_binary(Val, utf8, utf8)).
+
+%% Exclude:
+%% - multi-level wildcard '#' = <<35>>
+%% - single-level wildcard '+' = <<43>>
+%% - single-level separator '/' = <<47>>
 publish_topic_t() ->
     ?LET(
         Val,
         list(union([
             integer(0, 34),
             integer(36, 42),
-            integer(44, 16#10ffff)
+            integer(44, 46),
+            integer(48, 16#10ffff)
         ])),
         unicode:characters_to_binary(Val, utf8, utf8)).
 
@@ -191,12 +230,13 @@ prop_onpublish() ->
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
             #client_id{
+                agent_label=AgentLabel,
                 account_id=AccountId,
-                agent_id=AgentId} = parse_client_id(element(2, SubscriberId)),
+                audience=Audience} = parse_client_id(element(2, SubscriberId)),
             {ok, Modifiers} =
                 auth_on_publish(Username, SubscriberId, QoS, Topic, Payload, IsRetain),
             {_, Envelope} = lists:keyfind(payload, 1, Modifiers),
-            Envelope =:= envelope(AccountId, AgentId, Payload)
+            Envelope =:= envelope(AgentLabel, AccountId, Audience, Payload)
         end).
 
 prop_onsubscribe() ->
