@@ -46,8 +46,13 @@
     account_id  :: binary(),
     audience    :: binary()
 }).
-
 -type client_id() :: #client_id{}.
+
+-record (envelope, {
+    payload    :: binary(),
+    properties :: map()
+}).
+-type envelope() :: #envelope{}.
 
 %% =============================================================================
 %% Plugin callbacks
@@ -57,7 +62,7 @@ auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
     _Password, _CleanSession) ->
 
-    try validate_client_id(ClientId) of
+    try validate_client_id(parse_client_id(ClientId)) of
         #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience} ->
             error_logger:info_msg(
                 "Agent connected: agent_label=~s, account_id=~s, audience=~s",
@@ -81,9 +86,9 @@ auth_on_publish(
         account_id=AccountId,
         audience=Audience} = parse_client_id(ClientId),
 
-    try envelope(AgentLabel, AccountId, Audience, Payload) of
-        Envelope ->
-            {ok, [{payload, Envelope}]}
+    try envelope(AgentLabel, AccountId, Audience, validate_envelope(parse_envelope(Payload))) of
+        UpdatedPayload ->
+            {ok, [{payload, UpdatedPayload}]}
     catch
         T:R ->
             error_logger:error_msg(
@@ -112,24 +117,24 @@ auth_on_subscribe(
 %% Internal functions
 %% =============================================================================
 
--spec validate_client_id(binary()) -> client_id().
+-spec validate_client_id(client_id()) -> client_id().
 validate_client_id(Val) ->
-    ClientId =
-        #client_id{
-            agent_label=AgentLabel,
-            account_id=AccountId,
-            audience=Audience} = parse_client_id(Val),
+    #client_id{
+        agent_label=AgentLabel,
+        account_id=AccountId,
+        audience=Audience} = Val,
+
     true = is_binary(AgentLabel),
     true = uuid:is_uuid(uuid:string_to_uuid(AccountId)),
     true = is_binary(Audience),
-    ClientId.
+    Val.
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1/agents/", R/bits>>) ->
     parse_v1_agent_label(R, <<>>).
 
 -spec parse_v1_agent_label(binary(), binary()) -> client_id().
-parse_v1_agent_label(<<$:, R/bits>>, Acc) ->
+parse_v1_agent_label(<<$., R/bits>>, Acc) ->
     parse_v1_account_id(R, Acc);
 parse_v1_agent_label(<<C, R/bits>>, Acc) ->
     parse_v1_agent_label(R, <<Acc/binary, C>>);
@@ -137,16 +142,44 @@ parse_v1_agent_label(<<>>, Acc) ->
     error({bad_agent_label_id, Acc}).
 
 -spec parse_v1_account_id(binary(), binary()) -> client_id().
-parse_v1_account_id(<<AccountId:36/binary, $@, Audience/binary>>, AgentLabel) ->
+parse_v1_account_id(<<AccountId:36/binary, $., Audience/binary>>, AgentLabel) ->
     #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience};
 parse_v1_account_id(Val, _AgentLabel) ->
     error({bad_account_id, Val}).
 
--spec envelope(binary(), binary(), binary(), binary()) -> jsx:json_term().
-envelope(AgentLabel, AccountId, Audience, Message) ->
+-spec validate_envelope(envelope()) -> envelope().
+validate_envelope(Val) ->
+    #envelope{
+        payload=Payload,
+        properties=Properties} = Val,
+
+    true = is_binary(Payload),
+    true = is_map(Properties),
+    Val.
+
+-spec parse_envelope(binary()) -> envelope().
+parse_envelope(Message) ->
+    Envelope = jsx:decode(Message, [return_maps]),
+    Payload = maps:get(<<"payload">>, Envelope),
+    Properties = maps:get(<<"properties">>, Envelope, #{}),
+    #envelope{payload=Payload, properties=Properties}.
+
+-spec envelope(binary(), binary(), binary(), envelope()) -> jsx:json_term().
+envelope(AgentLabel, AccountId, Audience, Envelope) ->
+    #envelope{
+        payload=Payload,
+        properties=Properties} = Envelope,
+
+    %% Override authn properties
+    UpdatedProperties =
+        Properties#{
+            <<"agent-label">> => AgentLabel,
+            <<"account-id">> => AccountId,
+            <<"audience">> => Audience},
+
     jsx:encode(
-        #{sub => #{agent_label => AgentLabel, account_id => AccountId, audience => Audience},
-          msg => Message}).
+        #{properties => UpdatedProperties,
+          payload => Payload}).
 
 %% =============================================================================
 %% Tests
@@ -161,7 +194,7 @@ client_id_t() ->
     ?LET(
         {AgentLabel, AccountId, Audience},
         {agent_label(), uuid_t(), agent_label()},
-        <<"v1/agents/", AgentLabel/binary, $:, AccountId/binary, $@, Audience/binary>>).
+        <<"v1/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
     ?LET(
@@ -176,16 +209,15 @@ binary_utf8_t() ->
 %% - multi-level wildcard '#' = <<35>>
 %% - single-level wildcard '+' = <<43>>
 %% - single-level separator '/' = <<47>>
-%% - symbols: :' = <<58>>
+%% - symbols: '.' = <<46>>
 agent_label() ->
     ?LET(
         Val,
         list(union([
             integer(0, 34),
             integer(36, 42),
-            integer(44, 46),
-            integer(48, 57),
-            integer(59, 16#10ffff)
+            integer(44, 45),
+            integer(48, 16#10ffff)
         ])),
         unicode:characters_to_binary(Val, utf8, utf8)).
 
@@ -233,10 +265,17 @@ prop_onpublish() ->
                 agent_label=AgentLabel,
                 account_id=AccountId,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
+            ExpectedProperties =
+                #{<<"agent-label">> => AgentLabel,
+                  <<"account-id">> => AccountId,
+                  <<"audience">> => Audience},
+            ExpectedEnvelope = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            InputEnvelope = jsx:encode(#{payload => Payload}),
+
             {ok, Modifiers} =
-                auth_on_publish(Username, SubscriberId, QoS, Topic, Payload, IsRetain),
-            {_, Envelope} = lists:keyfind(payload, 1, Modifiers),
-            Envelope =:= envelope(AgentLabel, AccountId, Audience, Payload)
+                auth_on_publish(Username, SubscriberId, QoS, Topic, InputEnvelope, IsRetain),
+            {_, OutputEnvelope} = lists:keyfind(payload, 1, Modifiers),
+            OutputEnvelope =:= ExpectedEnvelope
         end).
 
 prop_onsubscribe() ->
