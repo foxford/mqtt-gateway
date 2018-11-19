@@ -13,7 +13,7 @@ Authorization for publish/subscribe operations is based conventions and dynamic 
 
 | Name           |   Type |  Default | Description                                                      |
 | -------------- | ------ | -------- | ---------------------------------------------------------------- |
-| MQTT_CLIENT_ID | String | required | `v1/agents/${AGENT_LABEL}:${ACCOUNT_ID}@${AUDIENCE}`             |
+| MQTT_CLIENT_ID | String | required | `v1/agents/${AGENT_LABEL}.${ACCOUNT_ID}.${AUDIENCE}`             |
 | MQTT_PASSWORD  | String | optional | JSON Web Token. The value is ignored at the moment               |
 | MQTT_USERNAME  | String | optional | The value is ignored                                             |
 
@@ -30,8 +30,8 @@ docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
 docker run -p1883:1883 -ti --rm sandbox/mqtt-gateway
 ## Publishing a message to the broker
-MQTT_CLIENT_ID='v1/agents/test:123e4567-e89b-12d3-a456-426655440000@example.org' \
-    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m 'bar'
+MQTT_CLIENT_ID='v1/agents/test.123e4567-e89b-12d3-a456-426655440000.example.org' \
+    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
 ```
 
 
