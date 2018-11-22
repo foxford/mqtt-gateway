@@ -46,6 +46,6 @@ MQTT Gateway should be built using the same release version of Erlang/OTP as Ver
 
 The source code is provided under the terms of [the MIT license][license].
 
-[travis]:https://travis-ci.org/netology-group/mqtt-gateway?branch=master
-[travis-img]:https://secure.travis-ci.org/netology-group/mqtt-gateway.png?branch=master
+[travis]:https://travis-ci.com/netology-group/mqtt-gateway?branch=master
+[travis-img]:https://travis-ci.com/netology-group/mqtt-gateway.png?branch=master
 [license]:http://www.opensource.org/licenses/MIT
