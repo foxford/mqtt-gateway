@@ -1,24 +1,31 @@
 language: erlang
 otp_release:
   - 20.3
+addons:
+  apt:
+    packages:
+      - cargo
+      - lftp
+cache: cargo
 services: docker
 git:
   depth: 1
-script:
-  - cargo test
 jobs:
   fast_finish: true
   include:
-    - stage: test
+    - stage: check
+      name: Tests
       install: make elvis deps plt
       script: make check EUNIT_OPTS=verbose
+    - stage: check
+      name: Docs
+      install: cargo install mdbook --vers 0.2.2 --force
+      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && deploy/docs.sh
     - stage: deploy
-      before_script: skip
-      install: skip
-      script: ./deploy/run.sh
+      name: Kubernetes
+      script: deploy/run.sh
 stages:
-  - name: compile
-  - name: test
+  - name: check
   - name: deploy
     if: (branch = master AND type = push) OR tag IS present
 notifications:
