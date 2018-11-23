@@ -17,7 +17,7 @@ DEPS = \
 	jsx
 
 dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git ac1669f8aff5fa22e36cd389260bbfe255b82ec7
-dep_uuid = git https://github.com/okeuday/uuid.git v1.7.2
+dep_uuid = git https://github.com/okeuday/uuid.git v1.7.4
 dep_jsx = git https://github.com/talentdeficit/jsx.git v2.9.0
 
 DEP_PLUGINS = version.mk
