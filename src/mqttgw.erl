@@ -130,7 +130,7 @@ validate_client_id(Val) ->
     Val.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<"v1/agents/", R/bits>>) ->
+parse_client_id(<<"mqtt3v1/agents/", R/bits>>) ->
     parse_v1_agent_label(R, <<>>).
 
 -spec parse_v1_agent_label(binary(), binary()) -> client_id().
@@ -194,7 +194,7 @@ client_id_t() ->
     ?LET(
         {AgentLabel, AccountId, Audience},
         {agent_label(), uuid_t(), agent_label()},
-        <<"v1/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
+        <<"mqtt3v1/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
     ?LET(
