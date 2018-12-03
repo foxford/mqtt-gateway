@@ -41,7 +41,10 @@
 ]).
 
 %% Types
+-type connection_mode() :: default | payload_only.
+
 -record(client_id, {
+    mode        :: connection_mode(),
     agent_label :: binary(),
     account_id  :: binary(),
     audience    :: binary()
@@ -82,11 +85,14 @@ auth_on_publish(
     _QoS, _Topic, Payload, _IsRetain) ->
 
     #client_id{
+        mode=Mode,
         agent_label=AgentLabel,
         account_id=AccountId,
         audience=Audience} = parse_client_id(ClientId),
 
-    try envelope(AgentLabel, AccountId, Audience, validate_envelope(parse_envelope(Payload))) of
+    try envelope(
+            AgentLabel, AccountId, Audience,
+            validate_envelope(parse_envelope(Mode, Payload))) of
         UpdatedPayload ->
             {ok, [{payload, UpdatedPayload}]}
     catch
@@ -131,20 +137,22 @@ validate_client_id(Val) ->
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, <<>>).
+    parse_v1_agent_label(R, default, <<>>);
+parse_client_id(<<"v1.mqtt3.payload-only/agents/", R/bits>>) ->
+    parse_v1_agent_label(R, payload_only, <<>>).
 
--spec parse_v1_agent_label(binary(), binary()) -> client_id().
-parse_v1_agent_label(<<$., R/bits>>, Acc) ->
-    parse_v1_account_id(R, Acc);
-parse_v1_agent_label(<<C, R/bits>>, Acc) ->
-    parse_v1_agent_label(R, <<Acc/binary, C>>);
-parse_v1_agent_label(<<>>, Acc) ->
+-spec parse_v1_agent_label(binary(), connection_mode(), binary()) -> client_id().
+parse_v1_agent_label(<<$., R/bits>>, Mode, Acc) ->
+    parse_v1_account_id(R, Mode, Acc);
+parse_v1_agent_label(<<C, R/bits>>, Mode, Acc) ->
+    parse_v1_agent_label(R, Mode, <<Acc/binary, C>>);
+parse_v1_agent_label(<<>>, _Mode, Acc) ->
     error({bad_agent_label_id, Acc}).
 
--spec parse_v1_account_id(binary(), binary()) -> client_id().
-parse_v1_account_id(<<AccountId:36/binary, $., Audience/binary>>, AgentLabel) ->
-    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience};
-parse_v1_account_id(Val, _AgentLabel) ->
+-spec parse_v1_account_id(binary(), connection_mode(), binary()) -> client_id().
+parse_v1_account_id(<<AccountId:36/binary, $., Audience/binary>>, Mode, AgentLabel) ->
+    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience, mode=Mode};
+parse_v1_account_id(Val, _Mode, _AgentLabel) ->
     error({bad_account_id, Val}).
 
 -spec validate_envelope(envelope()) -> envelope().
@@ -157,14 +165,16 @@ validate_envelope(Val) ->
     true = is_map(Properties),
     Val.
 
--spec parse_envelope(binary()) -> envelope().
-parse_envelope(Message) ->
+-spec parse_envelope(connection_mode(), binary()) -> envelope().
+parse_envelope(default, Message) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
-    #envelope{payload=Payload, properties=Properties}.
+    #envelope{payload=Payload, properties=Properties};
+parse_envelope(payload_only, Message) ->
+    #envelope{payload=Message, properties=#{}}.
 
--spec envelope(binary(), binary(), binary(), envelope()) -> jsx:json_term().
+-spec envelope(binary(), binary(), binary(), envelope()) -> binary().
 envelope(AgentLabel, AccountId, Audience, Envelope) ->
     #envelope{
         payload=Payload,
@@ -190,16 +200,17 @@ envelope(AgentLabel, AccountId, Audience, Envelope) ->
 uuid_t() ->
     ?LET(Val, uuid:uuid_to_string(uuid:get_v4(), binary_standard), Val).
 
-client_id_t() ->
+client_id_t(Version) ->
     ?LET(
         {AgentLabel, AccountId, Audience},
         {agent_label(), uuid_t(), agent_label()},
-        <<"v1.mqtt3/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
+        <<Version/binary,
+          "/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
 
-subscriber_id_t() ->
+subscriber_id_t(Version) ->
     ?LET(
         {MountPoint, ClientId},
-        {string(), client_id_t()},
+        {string(), client_id_t(Version)},
         {MountPoint, ClientId}).
 
 binary_utf8_t() ->
@@ -245,7 +256,7 @@ qos_t() ->
 prop_onconnect() ->
     ?FORALL(
         {Peer, SubscriberId, Username, Password, CleanSession},
-        {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t(), boolean()},
+        {any(), subscriber_id_t(<<"v1.mqtt3">>), binary_utf8_t(), binary_utf8_t(), boolean()},
         ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)).
 
 prop_onconnect_invalid_credentials() ->
@@ -255,10 +266,10 @@ prop_onconnect_invalid_credentials() ->
         {error, invalid_credentials} =:=
             auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession)).
 
-prop_onpublish() ->
+prop_onpublish_default() ->
     ?FORALL(
         {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
-        {binary_utf8_t(), subscriber_id_t(),
+        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>),
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
             #client_id{
@@ -270,10 +281,33 @@ prop_onpublish() ->
                   <<"account-id">> => AccountId,
                   <<"audience">> => Audience},
             ExpectedEnvelope = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
-            InputEnvelope = jsx:encode(#{payload => Payload}),
+            InputMessage = jsx:encode(#{payload => Payload}),
 
             {ok, Modifiers} =
-                auth_on_publish(Username, SubscriberId, QoS, Topic, InputEnvelope, IsRetain),
+                auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
+            {_, OutputEnvelope} = lists:keyfind(payload, 1, Modifiers),
+            OutputEnvelope =:= ExpectedEnvelope
+        end).
+
+prop_onpublish_payload_only() ->
+    ?FORALL(
+        {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
+        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3.payload-only">>),
+         qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
+        begin
+            #client_id{
+                agent_label=AgentLabel,
+                account_id=AccountId,
+                audience=Audience} = parse_client_id(element(2, SubscriberId)),
+            ExpectedProperties =
+                #{<<"agent-label">> => AgentLabel,
+                  <<"account-id">> => AccountId,
+                  <<"audience">> => Audience},
+            ExpectedEnvelope = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            InputMessage = Payload,
+
+            {ok, Modifiers} =
+                auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
             {_, OutputEnvelope} = lists:keyfind(payload, 1, Modifiers),
             OutputEnvelope =:= ExpectedEnvelope
         end).
@@ -281,7 +315,7 @@ prop_onpublish() ->
 prop_onsubscribe() ->
     ?FORALL(
         {Username, SubscriberId, Topics},
-        {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},
+        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>), list({subscribe_topic_t(), qos_t()})},
         ok =:= auth_on_subscribe(Username, SubscriberId, Topics)).
 
 -endif.
