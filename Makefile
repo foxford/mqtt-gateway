@@ -6,6 +6,7 @@ define PROJECT_ENV
 		{vmq_plugin_hooks, [
 			{mqttgw, auth_on_register, 5, []},
 			{mqttgw, auth_on_publish, 6, []},
+			{mqttgw, on_deliver, 4, []},
 			{mqttgw, auth_on_subscribe, 3, []}
 		]}
 	]

@@ -25,8 +25,9 @@
 -module(mqttgw).
 
 -behaviour(auth_on_register_hook).
--behaviour(auth_on_subscribe_hook).
 -behaviour(auth_on_publish_hook).
+-behaviour(on_deliver_hook).
+-behaviour(auth_on_subscribe_hook).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -37,6 +38,7 @@
 -export([
     auth_on_register/5,
     auth_on_publish/6,
+    on_deliver/4,
     auth_on_subscribe/3
 ]).
 
@@ -66,10 +68,14 @@ auth_on_register(
     _Password, _CleanSession) ->
 
     try validate_client_id(parse_client_id(ClientId)) of
-        #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience} ->
+        #client_id{
+            mode=Mode,
+            agent_label=AgentLabel,
+            account_id=AccountId,
+            audience=Audience} ->
             error_logger:info_msg(
-                "Agent connected: agent_label=~s, account_id=~s, audience=~s",
-                [AgentLabel, AccountId, Audience]),
+                "Agent connected: mode=~p, agent_label=~s, account_id=~s, audience=~s",
+                [Mode, AgentLabel, AccountId, Audience]),
             ok
     catch
         T:R ->
@@ -104,18 +110,37 @@ auth_on_publish(
             {error, bad_payload}
     end.
 
+on_deliver(
+    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Topic, Payload) ->
+
+    #client_id{mode=Mode} = parse_client_id(ClientId),
+
+    try deliver_envelope(Mode, Payload) of
+        UpdatedPayload ->
+            {ok, [{payload, UpdatedPayload}]}
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Agent failed to publish: invalid msg=~p, "
+                "exception_type=~p, excepton_reason=~p",
+                [Payload, T, R]),
+            {error, bad_payload}
+    end.
+
 auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Topics) ->
 
     #client_id{
+        mode=Mode,
         agent_label=AgentLabel,
         account_id=AccountId,
         audience=Audience} = parse_client_id(ClientId),
 
     error_logger:info_msg(
-        "Agent subscribed: agent_label=~s, account_id=~s, audience=~s, topics=~p",
-        [AgentLabel, AccountId, Audience, Topics]),
+        "Agent subscribed: mode=~p, agent_label=~s, account_id=~s, audience=~s, topics=~p",
+        [Mode, AgentLabel, AccountId, Audience, Topics]),
 
     ok.
 
@@ -190,6 +215,17 @@ envelope(AgentLabel, AccountId, Audience, Envelope) ->
     jsx:encode(
         #{properties => UpdatedProperties,
           payload => Payload}).
+
+-spec deliver_envelope(connection_mode(), binary()) -> binary().
+deliver_envelope(Mode, Payload) ->
+    Envelope = validate_envelope(parse_envelope(default, Payload)),
+    case Mode of
+        default ->
+            Payload;
+        payload_only ->
+            #envelope{payload=InnerPayload} = Envelope,
+            InnerPayload
+    end.
 
 %% =============================================================================
 %% Tests
@@ -280,13 +316,13 @@ prop_onpublish_default() ->
                 #{<<"agent-label">> => AgentLabel,
                   <<"account-id">> => AccountId,
                   <<"audience">> => Audience},
-            ExpectedEnvelope = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage = jsx:encode(#{payload => Payload}),
 
             {ok, Modifiers} =
                 auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
-            {_, OutputEnvelope} = lists:keyfind(payload, 1, Modifiers),
-            OutputEnvelope =:= ExpectedEnvelope
+            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
+            OutputMessage =:= ExpectedMessage
         end).
 
 prop_onpublish_payload_only() ->
@@ -303,13 +339,59 @@ prop_onpublish_payload_only() ->
                 #{<<"agent-label">> => AgentLabel,
                   <<"account-id">> => AccountId,
                   <<"audience">> => Audience},
-            ExpectedEnvelope = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage = Payload,
 
             {ok, Modifiers} =
                 auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
-            {_, OutputEnvelope} = lists:keyfind(payload, 1, Modifiers),
-            OutputEnvelope =:= ExpectedEnvelope
+            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
+            OutputMessage =:= ExpectedMessage
+        end).
+
+prop_ondeliver_default() ->
+    ?FORALL(
+        {Username, SubscriberId, Topic, Payload},
+        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>),
+         publish_topic_t(), binary_utf8_t()},
+        begin
+            #client_id{
+                agent_label=AgentLabel,
+                account_id=AccountId,
+                audience=Audience} = parse_client_id(element(2, SubscriberId)),
+            ExpectedProperties =
+                #{<<"agent-label">> => AgentLabel,
+                  <<"account-id">> => AccountId,
+                  <<"audience">> => Audience},
+            InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            ExpectedMessage = InputMessage,
+
+            {ok, Modifiers} =
+                on_deliver(Username, SubscriberId, Topic, InputMessage),
+            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
+            OutputMessage =:= ExpectedMessage
+        end).
+
+prop_ondeliver_payload_only() ->
+    ?FORALL(
+        {Username, SubscriberId, Topic, Payload},
+        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3.payload-only">>),
+         publish_topic_t(), binary_utf8_t()},
+        begin
+            #client_id{
+                agent_label=AgentLabel,
+                account_id=AccountId,
+                audience=Audience} = parse_client_id(element(2, SubscriberId)),
+            ExpectedProperties =
+                #{<<"agent-label">> => AgentLabel,
+                  <<"account-id">> => AccountId,
+                  <<"audience">> => Audience},
+            InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            ExpectedMessage = Payload,
+
+            {ok, Modifiers} =
+                on_deliver(Username, SubscriberId, Topic, InputMessage),
+            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
+            OutputMessage =:= ExpectedMessage
         end).
 
 prop_onsubscribe() ->
