@@ -236,17 +236,23 @@ deliver_envelope(Mode, Payload) ->
 uuid_t() ->
     ?LET(Val, uuid:uuid_to_string(uuid:get_v4(), binary_standard), Val).
 
-client_id_t(Version) ->
+version_t() ->
     ?LET(
-        {AgentLabel, AccountId, Audience},
-        {agent_label(), uuid_t(), agent_label()},
+        Index,
+        choose(1, 2),
+        lists:nth(Index, [<<"v1.mqtt3">>, <<"v1.mqtt3.payload-only">>])).
+
+client_id_t() ->
+    ?LET(
+        {Version, AgentLabel, AccountId, Audience},
+        {version_t(), agent_label_t(), uuid_t(), agent_label_t()},
         <<Version/binary,
           "/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
 
-subscriber_id_t(Version) ->
+subscriber_id_t() ->
     ?LET(
         {MountPoint, ClientId},
-        {string(), client_id_t(Version)},
+        {string(), client_id_t()},
         {MountPoint, ClientId}).
 
 binary_utf8_t() ->
@@ -257,7 +263,7 @@ binary_utf8_t() ->
 %% - single-level wildcard '+' = <<43>>
 %% - single-level separator '/' = <<47>>
 %% - symbols: '.' = <<46>>
-agent_label() ->
+agent_label_t() ->
     ?LET(
         Val,
         list(union([
@@ -292,7 +298,7 @@ qos_t() ->
 prop_onconnect() ->
     ?FORALL(
         {Peer, SubscriberId, Username, Password, CleanSession},
-        {any(), subscriber_id_t(<<"v1.mqtt3">>), binary_utf8_t(), binary_utf8_t(), boolean()},
+        {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t(), boolean()},
         ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)).
 
 prop_onconnect_invalid_credentials() ->
@@ -302,13 +308,14 @@ prop_onconnect_invalid_credentials() ->
         {error, invalid_credentials} =:=
             auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession)).
 
-prop_onpublish_default() ->
+prop_onpublish() ->
     ?FORALL(
         {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
-        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>),
+        {binary_utf8_t(), subscriber_id_t(),
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
             #client_id{
+                mode=Mode,
                 agent_label=AgentLabel,
                 account_id=AccountId,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
@@ -317,7 +324,11 @@ prop_onpublish_default() ->
                   <<"account-id">> => AccountId,
                   <<"audience">> => Audience},
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
-            InputMessage = jsx:encode(#{payload => Payload}),
+            InputMessage =
+                case Mode of
+                    default      -> jsx:encode(#{payload => Payload});
+                    payload_only -> Payload
+                end,
 
             {ok, Modifiers} =
                 auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
@@ -325,36 +336,14 @@ prop_onpublish_default() ->
             OutputMessage =:= ExpectedMessage
         end).
 
-prop_onpublish_payload_only() ->
-    ?FORALL(
-        {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
-        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3.payload-only">>),
-         qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
-        begin
-            #client_id{
-                agent_label=AgentLabel,
-                account_id=AccountId,
-                audience=Audience} = parse_client_id(element(2, SubscriberId)),
-            ExpectedProperties =
-                #{<<"agent-label">> => AgentLabel,
-                  <<"account-id">> => AccountId,
-                  <<"audience">> => Audience},
-            ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
-            InputMessage = Payload,
-
-            {ok, Modifiers} =
-                auth_on_publish(Username, SubscriberId, QoS, Topic, InputMessage, IsRetain),
-            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
-            OutputMessage =:= ExpectedMessage
-        end).
-
-prop_ondeliver_default() ->
+prop_ondeliver() ->
     ?FORALL(
         {Username, SubscriberId, Topic, Payload},
-        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>),
+        {binary_utf8_t(), subscriber_id_t(),
          publish_topic_t(), binary_utf8_t()},
         begin
             #client_id{
+                mode=Mode,
                 agent_label=AgentLabel,
                 account_id=AccountId,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
@@ -363,30 +352,11 @@ prop_ondeliver_default() ->
                   <<"account-id">> => AccountId,
                   <<"audience">> => Audience},
             InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
-            ExpectedMessage = InputMessage,
-
-            {ok, Modifiers} =
-                on_deliver(Username, SubscriberId, Topic, InputMessage),
-            {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
-            OutputMessage =:= ExpectedMessage
-        end).
-
-prop_ondeliver_payload_only() ->
-    ?FORALL(
-        {Username, SubscriberId, Topic, Payload},
-        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3.payload-only">>),
-         publish_topic_t(), binary_utf8_t()},
-        begin
-            #client_id{
-                agent_label=AgentLabel,
-                account_id=AccountId,
-                audience=Audience} = parse_client_id(element(2, SubscriberId)),
-            ExpectedProperties =
-                #{<<"agent-label">> => AgentLabel,
-                  <<"account-id">> => AccountId,
-                  <<"audience">> => Audience},
-            InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
-            ExpectedMessage = Payload,
+            ExpectedMessage =
+                case Mode of
+                    default      -> InputMessage;
+                    payload_only -> Payload
+                end,
 
             {ok, Modifiers} =
                 on_deliver(Username, SubscriberId, Topic, InputMessage),
@@ -397,7 +367,7 @@ prop_ondeliver_payload_only() ->
 prop_onsubscribe() ->
     ?FORALL(
         {Username, SubscriberId, Topics},
-        {binary_utf8_t(), subscriber_id_t(<<"v1.mqtt3">>), list({subscribe_topic_t(), qos_t()})},
+        {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},
         ok =:= auth_on_subscribe(Username, SubscriberId, Topics)).
 
 -endif.
