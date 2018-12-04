@@ -81,7 +81,7 @@ auth_on_register(
         T:R ->
             error_logger:warning_msg(
                 "Agent failed to connect: invalid client_id=~p, "
-                "exception_type=~p, excepton_reason=~p",
+                "exception_type=~p, exception_reason=~p",
                 [ClientId, T, R]),
             {error, invalid_credentials}
     end.
@@ -105,7 +105,7 @@ auth_on_publish(
         T:R ->
             error_logger:error_msg(
                 "Agent failed to publish: invalid msg=~p, "
-                "exception_type=~p, excepton_reason=~p",
+                "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
             {error, bad_payload}
     end.
@@ -123,7 +123,7 @@ on_deliver(
         T:R ->
             error_logger:error_msg(
                 "Agent failed to publish: invalid msg=~p, "
-                "exception_type=~p, excepton_reason=~p",
+                "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
             {error, bad_payload}
     end.
