@@ -208,8 +208,8 @@ envelope(AgentLabel, AccountId, Audience, Envelope) ->
     %% Override authn properties
     UpdatedProperties =
         Properties#{
-            <<"agent-label">> => AgentLabel,
-            <<"account-id">> => AccountId,
+            <<"agent_label">> => AgentLabel,
+            <<"account_id">> => AccountId,
             <<"audience">> => Audience},
 
     jsx:encode(
@@ -320,8 +320,8 @@ prop_onpublish() ->
                 account_id=AccountId,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
             ExpectedProperties =
-                #{<<"agent-label">> => AgentLabel,
-                  <<"account-id">> => AccountId,
+                #{<<"agent_label">> => AgentLabel,
+                  <<"account_id">> => AccountId,
                   <<"audience">> => Audience},
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage =
@@ -348,8 +348,8 @@ prop_ondeliver() ->
                 account_id=AccountId,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
             ExpectedProperties =
-                #{<<"agent-label">> => AgentLabel,
-                  <<"account-id">> => AccountId,
+                #{<<"agent_label">> => AgentLabel,
+                  <<"account_id">> => AccountId,
                   <<"audience">> => Audience},
             InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             ExpectedMessage =
