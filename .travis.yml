@@ -4,9 +4,7 @@ otp_release:
 addons:
   apt:
     packages:
-      - cargo
       - lftp
-cache: cargo
 services: docker
 git:
   depth: 1
@@ -19,7 +17,7 @@ jobs:
       script: make check EUNIT_OPTS=verbose
     - stage: check
       name: Docs
-      install: cargo install mdbook --vers 0.2.2 --force
+      install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers 0.2.2 --force
       script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && deploy/docs.sh
     - stage: deploy
       name: Kubernetes
