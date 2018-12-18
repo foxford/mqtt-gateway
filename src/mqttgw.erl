@@ -205,15 +205,22 @@ envelope(AgentLabel, AccountId, Audience, Envelope) ->
         payload=Payload,
         properties=Properties} = Envelope,
 
+    %% Everything is "event" by default
+    UpdatedProperties0 =
+        case maps:find(<<"type">>, Properties) of
+            error -> Properties#{<<"type">> => <<"event">>};
+            _     -> Properties
+        end,
+
     %% Override authn properties
-    UpdatedProperties =
-        Properties#{
+    UpdatedProperties1 =
+        UpdatedProperties0#{
             <<"agent_label">> => AgentLabel,
             <<"account_id">> => AccountId,
             <<"audience">> => Audience},
 
     jsx:encode(
-        #{properties => UpdatedProperties,
+        #{properties => UpdatedProperties1,
           payload => Payload}).
 
 -spec deliver_envelope(connection_mode(), binary()) -> binary().
@@ -322,7 +329,8 @@ prop_onpublish() ->
             ExpectedProperties =
                 #{<<"agent_label">> => AgentLabel,
                   <<"account_id">> => AccountId,
-                  <<"audience">> => Audience},
+                  <<"audience">> => Audience,
+                  <<"type">> => <<"event">>},
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage =
                 case Mode of
