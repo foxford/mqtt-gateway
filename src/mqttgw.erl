@@ -156,7 +156,7 @@ validate_client_id(Val) ->
         audience=Audience} = Val,
 
     true = is_binary(AgentLabel),
-    true = uuid:is_uuid(uuid:string_to_uuid(AccountId)),
+    true = is_binary(AccountId),
     true = is_binary(Audience),
     Val.
 
@@ -167,18 +167,30 @@ parse_client_id(<<"v1.mqtt3.payload-only/agents/", R/bits>>) ->
     parse_v1_agent_label(R, payload_only, <<>>).
 
 -spec parse_v1_agent_label(binary(), connection_mode(), binary()) -> client_id().
+parse_v1_agent_label(<<$., _/bits>>, _Mode, <<>>) ->
+    error(missing_agent_label);
 parse_v1_agent_label(<<$., R/bits>>, Mode, Acc) ->
-    parse_v1_account_id(R, Mode, Acc);
+    parse_v1_account_id(R, Mode, Acc, <<>>);
 parse_v1_agent_label(<<C, R/bits>>, Mode, Acc) ->
     parse_v1_agent_label(R, Mode, <<Acc/binary, C>>);
 parse_v1_agent_label(<<>>, _Mode, Acc) ->
-    error({bad_agent_label_id, Acc}).
+    error({bad_client_id, [Acc]}).
 
--spec parse_v1_account_id(binary(), connection_mode(), binary()) -> client_id().
-parse_v1_account_id(<<AccountId:36/binary, $., Audience/binary>>, Mode, AgentLabel) ->
-    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience, mode=Mode};
-parse_v1_account_id(Val, _Mode, _AgentLabel) ->
-    error({bad_account_id, Val}).
+-spec parse_v1_account_id(binary(), connection_mode(), binary(), binary()) -> client_id().
+parse_v1_account_id(<<$., _/bits>>, _Mode, _AgentLabel, <<>>) ->
+    error(missing_account_id);
+parse_v1_account_id(<<$., R/bits>>, Mode, AgentLabel, Acc) ->
+    parse_v1_audience(R, Mode, AgentLabel, Acc);
+parse_v1_account_id(<<C, R/bits>>, Mode, AgentLabel, Acc) ->
+    parse_v1_account_id(R, Mode, AgentLabel, <<Acc/binary, C>>);
+parse_v1_account_id(<<>>, _Mode, AgentLabel, Acc) ->
+    error({bad_client_id, [AgentLabel, Acc]}).
+
+-spec parse_v1_audience(binary(), connection_mode(), binary(), binary()) -> client_id().
+parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountId) ->
+    error(missing_audience);
+parse_v1_audience(Audience, Mode, AgentLabel, AccountId) ->
+    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience, mode=Mode}.
 
 -spec validate_envelope(envelope()) -> envelope().
 validate_envelope(Val) ->
@@ -240,9 +252,6 @@ deliver_envelope(Mode, Payload) ->
 
 -ifdef(TEST).
 
-uuid_t() ->
-    ?LET(Val, uuid:uuid_to_string(uuid:get_v4(), binary_standard), Val).
-
 version_t() ->
     ?LET(
         Index,
@@ -252,7 +261,7 @@ version_t() ->
 client_id_t() ->
     ?LET(
         {Version, AgentLabel, AccountId, Audience},
-        {version_t(), agent_label_t(), uuid_t(), agent_label_t()},
+        {version_t(), label_t(), label_t(), label_t()},
         <<Version/binary,
           "/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
 
@@ -270,15 +279,15 @@ binary_utf8_t() ->
 %% - single-level wildcard '+' = <<43>>
 %% - single-level separator '/' = <<47>>
 %% - symbols: '.' = <<46>>
-agent_label_t() ->
+label_t() ->
     ?LET(
         Val,
-        list(union([
+        non_empty(list(union([
             integer(0, 34),
             integer(36, 42),
             integer(44, 45),
             integer(48, 16#10ffff)
-        ])),
+        ]))),
         unicode:characters_to_binary(Val, utf8, utf8)).
 
 %% Exclude:
