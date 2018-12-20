@@ -46,10 +46,10 @@
 -type connection_mode() :: default | payload_only.
 
 -record(client_id, {
-    mode        :: connection_mode(),
-    agent_label :: binary(),
-    account_id  :: binary(),
-    audience    :: binary()
+    mode          :: connection_mode(),
+    agent_label   :: binary(),
+    account_label :: binary(),
+    audience      :: binary()
 }).
 -type client_id() :: #client_id{}.
 
@@ -71,11 +71,11 @@ auth_on_register(
         #client_id{
             mode=Mode,
             agent_label=AgentLabel,
-            account_id=AccountId,
+            account_label=AccountLabel,
             audience=Audience} ->
             error_logger:info_msg(
-                "Agent connected: mode=~p, agent_label=~s, account_id=~s, audience=~s",
-                [Mode, AgentLabel, AccountId, Audience]),
+                "Agent connected: mode=~p, agent_label=~s, account_label=~s, audience=~s",
+                [Mode, AgentLabel, AccountLabel, Audience]),
             ok
     catch
         T:R ->
@@ -93,11 +93,11 @@ auth_on_publish(
     #client_id{
         mode=Mode,
         agent_label=AgentLabel,
-        account_id=AccountId,
+        account_label=AccountLabel,
         audience=Audience} = parse_client_id(ClientId),
 
     try envelope(
-            AgentLabel, AccountId, Audience,
+            AgentLabel, AccountLabel, Audience,
             validate_envelope(parse_envelope(Mode, Payload))) of
         UpdatedPayload ->
             {ok, [{payload, UpdatedPayload}]}
@@ -135,12 +135,12 @@ auth_on_subscribe(
     #client_id{
         mode=Mode,
         agent_label=AgentLabel,
-        account_id=AccountId,
+        account_label=AccountLabel,
         audience=Audience} = parse_client_id(ClientId),
 
     error_logger:info_msg(
-        "Agent subscribed: mode=~p, agent_label=~s, account_id=~s, audience=~s, topics=~p",
-        [Mode, AgentLabel, AccountId, Audience, Topics]),
+        "Agent subscribed: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
+        [Mode, AgentLabel, AccountLabel, Audience, Topics]),
 
     ok.
 
@@ -152,11 +152,11 @@ auth_on_subscribe(
 validate_client_id(Val) ->
     #client_id{
         agent_label=AgentLabel,
-        account_id=AccountId,
+        account_label=AccountLabel,
         audience=Audience} = Val,
 
     true = is_binary(AgentLabel),
-    true = is_binary(AccountId),
+    true = is_binary(AccountLabel),
     true = is_binary(Audience),
     Val.
 
@@ -170,27 +170,27 @@ parse_client_id(<<"v1.mqtt3.payload-only/agents/", R/bits>>) ->
 parse_v1_agent_label(<<$., _/bits>>, _Mode, <<>>) ->
     error(missing_agent_label);
 parse_v1_agent_label(<<$., R/bits>>, Mode, Acc) ->
-    parse_v1_account_id(R, Mode, Acc, <<>>);
+    parse_v1_account_label(R, Mode, Acc, <<>>);
 parse_v1_agent_label(<<C, R/bits>>, Mode, Acc) ->
     parse_v1_agent_label(R, Mode, <<Acc/binary, C>>);
 parse_v1_agent_label(<<>>, _Mode, Acc) ->
     error({bad_client_id, [Acc]}).
 
--spec parse_v1_account_id(binary(), connection_mode(), binary(), binary()) -> client_id().
-parse_v1_account_id(<<$., _/bits>>, _Mode, _AgentLabel, <<>>) ->
-    error(missing_account_id);
-parse_v1_account_id(<<$., R/bits>>, Mode, AgentLabel, Acc) ->
+-spec parse_v1_account_label(binary(), connection_mode(), binary(), binary()) -> client_id().
+parse_v1_account_label(<<$., _/bits>>, _Mode, _AgentLabel, <<>>) ->
+    error(missing_account_label);
+parse_v1_account_label(<<$., R/bits>>, Mode, AgentLabel, Acc) ->
     parse_v1_audience(R, Mode, AgentLabel, Acc);
-parse_v1_account_id(<<C, R/bits>>, Mode, AgentLabel, Acc) ->
-    parse_v1_account_id(R, Mode, AgentLabel, <<Acc/binary, C>>);
-parse_v1_account_id(<<>>, _Mode, AgentLabel, Acc) ->
+parse_v1_account_label(<<C, R/bits>>, Mode, AgentLabel, Acc) ->
+    parse_v1_account_label(R, Mode, AgentLabel, <<Acc/binary, C>>);
+parse_v1_account_label(<<>>, _Mode, AgentLabel, Acc) ->
     error({bad_client_id, [AgentLabel, Acc]}).
 
 -spec parse_v1_audience(binary(), connection_mode(), binary(), binary()) -> client_id().
-parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountId) ->
+parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountLabel) ->
     error(missing_audience);
-parse_v1_audience(Audience, Mode, AgentLabel, AccountId) ->
-    #client_id{agent_label=AgentLabel, account_id=AccountId, audience=Audience, mode=Mode}.
+parse_v1_audience(Audience, Mode, AgentLabel, AccountLabel) ->
+    #client_id{agent_label=AgentLabel, account_label=AccountLabel, audience=Audience, mode=Mode}.
 
 -spec validate_envelope(envelope()) -> envelope().
 validate_envelope(Val) ->
@@ -212,7 +212,7 @@ parse_envelope(payload_only, Message) ->
     #envelope{payload=Message, properties=#{}}.
 
 -spec envelope(binary(), binary(), binary(), envelope()) -> binary().
-envelope(AgentLabel, AccountId, Audience, Envelope) ->
+envelope(AgentLabel, AccountLabel, Audience, Envelope) ->
     #envelope{
         payload=Payload,
         properties=Properties} = Envelope,
@@ -228,7 +228,7 @@ envelope(AgentLabel, AccountId, Audience, Envelope) ->
     UpdatedProperties1 =
         UpdatedProperties0#{
             <<"agent_label">> => AgentLabel,
-            <<"account_id">> => AccountId,
+            <<"account_label">> => AccountLabel,
             <<"audience">> => Audience},
 
     jsx:encode(
@@ -260,10 +260,10 @@ version_t() ->
 
 client_id_t() ->
     ?LET(
-        {Version, AgentLabel, AccountId, Audience},
+        {Version, AgentLabel, AccountLabel, Audience},
         {version_t(), label_t(), label_t(), label_t()},
         <<Version/binary,
-          "/agents/", AgentLabel/binary, $., AccountId/binary, $., Audience/binary>>).
+          "/agents/", AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
     ?LET(
@@ -333,11 +333,11 @@ prop_onpublish() ->
             #client_id{
                 mode=Mode,
                 agent_label=AgentLabel,
-                account_id=AccountId,
+                account_label=AccountLabel,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
             ExpectedProperties =
                 #{<<"agent_label">> => AgentLabel,
-                  <<"account_id">> => AccountId,
+                  <<"account_label">> => AccountLabel,
                   <<"audience">> => Audience,
                   <<"type">> => <<"event">>},
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
@@ -362,11 +362,11 @@ prop_ondeliver() ->
             #client_id{
                 mode=Mode,
                 agent_label=AgentLabel,
-                account_id=AccountId,
+                account_label=AccountLabel,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
             ExpectedProperties =
                 #{<<"agent_label">> => AgentLabel,
-                  <<"account_id">> => AccountId,
+                  <<"account_label">> => AccountLabel,
                   <<"audience">> => Audience},
             InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             ExpectedMessage =
