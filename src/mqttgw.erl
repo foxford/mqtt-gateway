@@ -43,7 +43,7 @@
 ]).
 
 %% Types
--type connection_mode() :: default | payload_only.
+-type connection_mode() :: default | payload_only | bridge.
 
 -record(client_id, {
     mode          :: connection_mode(),
@@ -97,7 +97,7 @@ auth_on_publish(
         audience=Audience} = parse_client_id(ClientId),
 
     try envelope(
-            AgentLabel, AccountLabel, Audience,
+            Mode, AgentLabel, AccountLabel, Audience,
             validate_envelope(parse_envelope(Mode, Payload))) of
         UpdatedPayload ->
             {ok, [{payload, UpdatedPayload}]}
@@ -164,7 +164,9 @@ validate_client_id(Val) ->
 parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
     parse_v1_agent_label(R, default, <<>>);
 parse_client_id(<<"v1.mqtt3.payload-only/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, payload_only, <<>>).
+    parse_v1_agent_label(R, payload_only, <<>>);
+parse_client_id(<<"v1.mqtt3/bridge-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, bridge, <<>>).
 
 -spec parse_v1_agent_label(binary(), connection_mode(), binary()) -> client_id().
 parse_v1_agent_label(<<$., _/bits>>, _Mode, <<>>) ->
@@ -192,6 +194,37 @@ parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountLabel) ->
 parse_v1_audience(Audience, Mode, AgentLabel, AccountLabel) ->
     #client_id{agent_label=AgentLabel, account_label=AccountLabel, audience=Audience, mode=Mode}.
 
+-spec validate_authn_properties(map()) -> map().
+validate_authn_properties(Properties) ->
+    _ = validate_agent_label_property(Properties),
+    _ = validate_account_label_property(Properties),
+    _ = validate_audience_property(Properties),
+    Properties.
+
+-spec validate_agent_label_property(map()) -> binary().
+validate_agent_label_property(#{<<"agent_label">> := Val}) when is_binary(Val) ->
+    Val;
+validate_agent_label_property(#{<<"agent_label">> := Val}) ->
+    error({bad_agent_label, Val});
+validate_agent_label_property(_) ->
+    error(missing_agent_label).
+
+-spec validate_account_label_property(map()) -> binary().
+validate_account_label_property(#{<<"account_label">> := Val}) when is_binary(Val) ->
+    Val;
+validate_account_label_property(#{<<"account_label">> := Val}) ->
+    error({bad_account_label, Val});
+validate_account_label_property(_) ->
+    error(missing_account_label).
+
+-spec validate_audience_property(map()) -> binary().
+validate_audience_property(#{<<"audience">> := Val}) when is_binary(Val) ->
+    Val;
+validate_audience_property(#{<<"audience">> := Val}) ->
+    error({bad_audience, Val});
+validate_audience_property(_) ->
+    error(missing_audience).
+
 -spec validate_envelope(envelope()) -> envelope().
 validate_envelope(Val) ->
     #envelope{
@@ -203,7 +236,7 @@ validate_envelope(Val) ->
     Val.
 
 -spec parse_envelope(connection_mode(), binary()) -> envelope().
-parse_envelope(default, Message) ->
+parse_envelope(Mode, Message) when (Mode =:= default) or (Mode =:= bridge) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
@@ -211,8 +244,8 @@ parse_envelope(default, Message) ->
 parse_envelope(payload_only, Message) ->
     #envelope{payload=Message, properties=#{}}.
 
--spec envelope(binary(), binary(), binary(), envelope()) -> binary().
-envelope(AgentLabel, AccountLabel, Audience, Envelope) ->
+-spec envelope(connection_mode(), binary(), binary(), binary(), envelope()) -> binary().
+envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
     #envelope{
         payload=Payload,
         properties=Properties} = Envelope,
@@ -226,10 +259,17 @@ envelope(AgentLabel, AccountLabel, Audience, Envelope) ->
 
     %% Override authn properties
     UpdatedProperties1 =
-        UpdatedProperties0#{
-            <<"agent_label">> => AgentLabel,
-            <<"account_label">> => AccountLabel,
-            <<"audience">> => Audience},
+        case Mode of
+            bridge ->
+                %% We do not override authn properties for 'bridge' mode,
+                %% but verify that they are exist
+                validate_authn_properties(UpdatedProperties0);
+            _ ->
+                UpdatedProperties0#{
+                    <<"agent_label">> => AgentLabel,
+                    <<"account_label">> => AccountLabel,
+                    <<"audience">> => Audience}
+        end,
 
     jsx:encode(
         #{properties => UpdatedProperties1,
@@ -239,7 +279,7 @@ envelope(AgentLabel, AccountLabel, Audience, Envelope) ->
 deliver_envelope(Mode, Payload) ->
     Envelope = validate_envelope(parse_envelope(default, Payload)),
     case Mode of
-        default ->
+        Mode when (Mode =:= default) or (Mode =:= bridge) ->
             Payload;
         payload_only ->
             #envelope{payload=InnerPayload} = Envelope,
