@@ -42,7 +42,7 @@ MQTT Gateway should be built using the same release version of Erlang/OTP as Ver
 
 
 
-### License
+## License
 
 The source code is provided under the terms of [the MIT license][license].
 
