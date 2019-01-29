@@ -107,7 +107,7 @@ auth_on_publish(
                 "Agent failed to publish: invalid msg=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
-            {error, bad_payload}
+            {error, bad_message}
     end.
 
 on_deliver(
@@ -125,7 +125,7 @@ on_deliver(
                 "Agent failed to publish: invalid msg=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
-            {error, bad_payload}
+            {error, bad_message}
     end.
 
 auth_on_subscribe(
@@ -292,18 +292,21 @@ deliver_envelope(Mode, Payload) ->
 
 -ifdef(TEST).
 
-version_t() ->
+version_mode_t() ->
     ?LET(
         Index,
-        choose(1, 2),
-        lists:nth(Index, [<<"v1.mqtt3">>, <<"v1.mqtt3.payload-only">>])).
+        choose(1, 3),
+        lists:nth(Index,
+            [{<<"v1.mqtt3">>, <<"bridge-agents">>},
+             {<<"v1.mqtt3">>, <<"agents">>},
+             {<<"v1.mqtt3.payload-only">>, <<"agents">>}])).
 
 client_id_t() ->
     ?LET(
-        {Version, AgentLabel, AccountLabel, Audience},
-        {version_t(), label_t(), label_t(), label_t()},
-        <<Version/binary,
-          "/agents/", AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
+        {{Version, Mode}, AgentLabel, AccountLabel, Audience},
+        {version_mode_t(), label_t(), label_t(), label_t()},
+        <<Version/binary, $/, Mode/binary, $/,
+          AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
     ?LET(
@@ -375,16 +378,20 @@ prop_onpublish() ->
                 agent_label=AgentLabel,
                 account_label=AccountLabel,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
-            ExpectedProperties =
+            ExpectedAuthnProps =
                 #{<<"agent_label">> => AgentLabel,
                   <<"account_label">> => AccountLabel,
-                  <<"audience">> => Audience,
-                  <<"type">> => <<"event">>},
+                  <<"audience">> => Audience},
+            ExpectedProperties = ExpectedAuthnProps#{<<"type">> => <<"event">>},
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage =
                 case Mode of
-                    default      -> jsx:encode(#{payload => Payload});
-                    payload_only -> Payload
+                    bridge ->
+                        jsx:encode(#{payload => Payload, properties => ExpectedAuthnProps});
+                    default ->
+                        jsx:encode(#{payload => Payload});
+                    payload_only ->
+                        Payload
                 end,
 
             {ok, Modifiers} =
@@ -392,6 +399,21 @@ prop_onpublish() ->
             {_, OutputMessage} = lists:keyfind(payload, 1, Modifiers),
             OutputMessage =:= ExpectedMessage
         end).
+
+bridge_missing_properties_test_() ->
+    Test =
+        [{"missing properties", #{}},
+         {"missing agent_label", #{<<"account_label">> => <<>>, <<"audience">> => <<>>}},
+         {"missing account_label", #{<<"agent_label">> => <<>>, <<"audience">> => <<>>}},
+         {"missing audience", #{<<"agent_label">> => <<>>, <<"account_label">> => <<>>}}],
+
+    ClientId = <<"v1.mqtt3/bridge-agents/x.a.example.org">>,
+    [begin
+        Message = jsx:encode(#{payload => <<>>, properties => Properties}),
+        Error = auth_on_publish(<<>>, {[], ClientId}, 0, [<<>>], Message, false),
+        ExpectedError = {error, bad_message},
+        {Desc, ?_assertEqual(ExpectedError, Error)}
+     end || {Desc, Properties} <- Test].
 
 prop_ondeliver() ->
     ?FORALL(
@@ -411,6 +433,7 @@ prop_ondeliver() ->
             InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             ExpectedMessage =
                 case Mode of
+                    bridge       -> InputMessage;
                     default      -> InputMessage;
                     payload_only -> Payload
                 end,
