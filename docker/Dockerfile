@@ -1,7 +1,7 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM erlang:20-alpine as build-stage
+FROM erlang:21-alpine as build-stage
 
 WORKDIR "/build"
 COPY . .
@@ -34,8 +34,8 @@ RUN set -xe \
 
 ## Installing VerneMQ
 RUN set -xe \
-    && VERNEMQ_URI='https://bintray.com/artifact/download/erlio/vernemq/deb/bionic/vernemq_1.6.2-1_amd64.deb' \
-    && VERNEMQ_SHA='52987411b277514ce84e90ab8698b7b5a9b37357de9c73f020dd9b985f8be39e' \
+    && VERNEMQ_URI='https://github.com/vernemq/vernemq/releases/download/1.7.0/vernemq-1.7.0.bionic.x86_64.deb' \
+    && VERNEMQ_SHA='0934e0286d4f805e18f400f032168b6987a678edb795ee15729c589cd945bef7' \
     && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
         && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
         && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
