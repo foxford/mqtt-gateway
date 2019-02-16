@@ -11,11 +11,11 @@ Authorization for publish/subscribe operations is based conventions and dynamic 
 
 #### Authentication
 
-| Name           |   Type |  Default | Description                                                   |
-| -------------- | ------ | -------- | --------------------------------------------------------------|
-| MQTT_CLIENT_ID | String | required | `v1.mqtt3/agents/${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}` |
-| MQTT_PASSWORD  | String | optional | JSON Web Token. The value is ignored at the moment            |
-| MQTT_USERNAME  | String | optional | The value is ignored                                          |
+| Name           |   Type |  Default | Description                                                      |
+| -------------- | ------ | -------- | ---------------------------------------------------------------- |
+| MQTT_CLIENT_ID | String | required | `v1.mqtt3/agents/${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}`    |
+| MQTT_PASSWORD  | String | required | JSON Web Token. Token is required if auhentification is enabled. |
+| MQTT_USERNAME  | String | optional | The value is ignored                                             |
 
 
 
@@ -28,10 +28,33 @@ execute following shell commands within different terminal tabs:
 ## To build container locally
 docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
-docker run -p1883:1883 -ti --rm sandbox/mqtt-gateway
+cp App.toml.sample App.toml 
+docker run -ti --rm \
+    -v "$(pwd)/App.toml:/app/App.toml" \
+    -e APP_CONFIG='/app/App.toml' \
+    -p 1883:1883 \
+    sandbox/mqtt-gateway
 ## Publishing a message to the broker
-MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.org' \
-    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
+MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
+    mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
+```
+
+
+
+### Authentication using Json Web Tokens
+
+```bash
+## Authnentication should be enabled in 'App.toml'
+docker run -ti --rm \
+    -v "$(pwd)/App.toml:/app/App.toml" \
+    -v "$(pwd)/data/keys/iam.key.binary.sample:/app/data/keys/iam.key.binary.sample" \
+    -e APP_CONFIG='/app/App.toml' \
+    -p 1883:1883 \
+    sandbox/mqtt-gateway
+## Publishing a message to the broker
+ACCESS_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJleGFtcGxlLm5ldCIsImlzcyI6ImlhbS5zdmMuZXhhbXBsZS5uZXQiLCJzdWIiOiJqb2huLWRvZSJ9.aTUJeUW6weaxycqfafqK3JP9AP6_PGQfC0ANA045V88' \
+MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
+    mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t 'foo' -m '{"payload": "bar"}'
 ```
 
 
