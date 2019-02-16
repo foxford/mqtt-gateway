@@ -14,10 +14,12 @@ endef
 
 DEPS = \
 	vernemq_dev \
-	jsx
+	toml \
+	jose
 
 dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git ac1669f8aff5fa22e36cd389260bbfe255b82ec7
-dep_jsx = git https://github.com/talentdeficit/jsx.git v2.9.0
+dep_toml = git https://github.com/dozzie/toml.git v0.3.0
+dep_jose = git https://github.com/manifest/jose-erlang v0.1.2
 
 DEP_PLUGINS = version.mk
 BUILD_DEPS = version.mk

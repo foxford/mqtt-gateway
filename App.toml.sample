@@ -1,0 +1,9 @@
+[authn]
+disabled = true
+
+## To enable authentication
+##
+## [authn."iam.svc.example.net"]
+## audience = ["example.net"]
+## algorithm = "HS256"
+## key = "/app/data/keys/iam.key.binary.sample"

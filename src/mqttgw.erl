@@ -1,27 +1,3 @@
-%% -----------------------------------------------------------------------------
-%% The MIT License
-%%
-%% Copyright (c) 2018 Andrei Nesterov <ae.nesterov@gmail.com>
-%%
-%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%% of this software and associated documentation files (the "Software"), to
-%% deal in the Software without restriction, including without limitation the
-%% rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-%% sell copies of the Software, and to permit persons to whom the Software is
-%% furnished to do so, subject to the following conditions:
-%%
-%% The above copyright notice and this permission notice shall be included in
-%% all copies or substantial portions of the Software.
-%%
-%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-%% FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-%% IN THE SOFTWARE.
-%% -----------------------------------------------------------------------------
-
 -module(mqttgw).
 
 -behaviour(auth_on_register_hook).
@@ -36,11 +12,16 @@
 
 %% Plugin callbacks
 -export([
+    start/0,
+    stop/0,
     auth_on_register/5,
     auth_on_publish/6,
     on_deliver/4,
     auth_on_subscribe/3
 ]).
+
+%% Definitions
+-define(APP, ?MODULE).
 
 %% Types
 -type connection_mode() :: default | payload_only | bridge.
@@ -60,30 +41,88 @@
 -type envelope() :: #envelope{}.
 
 %% =============================================================================
-%% Plugin callbacks
+%% API: Connect
 %% =============================================================================
 
-auth_on_register(
-    _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
-    _Password, _CleanSession) ->
+-spec handle_connect_authn(binary(), binary()) -> ok | {error, any()}.
+handle_connect_authn(ClientId, Password) ->
+    case mqttgw_state:find(authn) of
+        {ok, disabled} ->
+            handle_connect_client_id(ClientId, ignore);
+        {ok, {enabled, Config}} ->
+            handle_connect_password(ClientId, Password, Config);
+        _ ->
+            error_logger:warning_msg(
+                "Error on connect: authn config isn't found, client_id=~p",
+                [ClientId]),
+            {error, impl_specific_error}
+    end.
 
-    try validate_client_id(parse_client_id(ClientId)) of
-        #client_id{
-            mode=Mode,
-            agent_label=AgentLabel,
-            account_label=AccountLabel,
-            audience=Audience} ->
-            error_logger:info_msg(
-                "Agent connected: mode=~p, agent_label=~s, account_label=~s, audience=~s",
-                [Mode, AgentLabel, AccountLabel, Audience]),
-            ok
+-spec handle_connect_password(binary(), binary(), mqttgw_authn:config()) -> ok | {error, any()}.
+handle_connect_password(ClientId, Password, Config) ->
+    try mqttgw_authn:verify(Password, Config) of
+        Claims ->
+            handle_connect_client_id(ClientId, Claims)
     catch
         T:R ->
             error_logger:warning_msg(
-                "Agent failed to connect: invalid client_id=~p, "
+                "Error on connect: invalid password, client_id=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [ClientId, T, R]),
-            {error, invalid_credentials}
+            {error, bad_username_or_password}
+    end.
+
+-spec handle_connect_client_id(binary(), mqttgw_authn:claims() | ignore) -> ok | {error, any()}.
+handle_connect_client_id(ClientId, Claims) ->
+    try validate_client_id(parse_client_id(ClientId), Claims) of
+        Val ->
+            handle_connect_success(Val)
+    catch
+        T:R ->
+            error_logger:warning_msg(
+                "Error on connect: invalid client_id=~p, "
+                "exception_type=~p, exception_reason=~p",
+                [ClientId, T, R]),
+            {error, client_identifier_not_valid}
+    end.
+
+-spec handle_connect_success(client_id()) -> ok | {error, any()}.
+handle_connect_success(ClientId) ->
+    #client_id{
+        mode=Mode,
+        agent_label=AgentLabel,
+        account_label=AccountLabel,
+        audience=Audience} = ClientId,
+
+    error_logger:info_msg(
+        "Agent connected: mode=~p, agent_label=~s, account_label=~s, audience=~s",
+        [Mode, AgentLabel, AccountLabel, Audience]),
+    ok.
+
+%% =============================================================================
+%% Plugin callbacks
+%% =============================================================================
+
+-spec start() -> ok.
+start() ->
+    {ok, _} = application:ensure_all_started(?APP),
+    ConfigTuple = mqttgw_authn:read_config(read_config("APP_CONFIG")),
+    mqttgw_state:new(),
+    mqttgw_state:put(authn, ConfigTuple),
+    ok.
+
+-spec stop() -> ok.
+stop() ->
+    application:stop(?APP).
+
+auth_on_register(
+    _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
+    Password, _CleanSession) ->
+    case handle_connect_authn(ClientId, Password) of
+        {error, _} ->
+            {error, invalid_credentials};
+        Ok ->
+            Ok
     end.
 
 auth_on_publish(
@@ -148,8 +187,22 @@ auth_on_subscribe(
 %% Internal functions
 %% =============================================================================
 
--spec validate_client_id(client_id()) -> client_id().
-validate_client_id(Val) ->
+-spec read_config(list()) -> toml:config().
+read_config(Name) ->
+    case os:getenv(Name) of
+        false -> exit(missing_config_path);
+        Path  -> read_config_file(Path)
+    end.
+
+-spec read_config_file(list()) -> toml:config().
+read_config_file(Path) ->
+    case toml:read_file(Path) of
+        {ok, Config} -> Config;
+        {error, Reason} -> exit({invalid_config_path, Reason})
+    end.
+
+-spec validate_client_id(client_id(), mqttgw_authn:claims() | ignore) -> client_id().
+validate_client_id(Val, Claims) ->
     #client_id{
         agent_label=AgentLabel,
         account_label=AccountLabel,
@@ -158,7 +211,22 @@ validate_client_id(Val) ->
     true = is_binary(AgentLabel),
     true = is_binary(AccountLabel),
     true = is_binary(Audience),
-    Val.
+
+    case Claims of
+        ignore -> Val;
+        _ ->
+            verify_client_account_label(AccountLabel, Claims),
+            verify_client_audience(Audience, Claims),
+            Val
+    end.
+
+-spec verify_client_account_label(binary(), mqttgw_authn:claims()) -> ok.
+verify_client_account_label(V, #{<<"sub">> := V}) -> ok;
+verify_client_account_label(C, #{<<"sub">> := T}) -> error({nomatch_agent_label, C, T}).
+
+-spec verify_client_audience(binary(), mqttgw_authn:claims()) -> ok.
+verify_client_audience(V, #{<<"aud">> := V}) -> ok;
+verify_client_audience(C, #{<<"aud">> := T}) -> error({nomatch_audience, C, T}).
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
@@ -358,7 +426,11 @@ prop_onconnect() ->
     ?FORALL(
         {Peer, SubscriberId, Username, Password, CleanSession},
         {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t(), boolean()},
-        ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)).
+        begin
+            mqttgw_state:new(),
+            mqttgw_state:put(authn, disabled),
+            ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)
+        end).
 
 prop_onconnect_invalid_credentials() ->
     ?FORALL(
