@@ -1,7 +1,7 @@
-deps
-ebin
-_rel
-.erlang.mk
-*.beam
-*.plt
-*.d
+*
+!Makefile
+!erlang.mk
+!relx.config
+!rel
+!src
+!docker/entrypoint.sh
