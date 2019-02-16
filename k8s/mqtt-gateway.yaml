@@ -27,10 +27,28 @@ spec:
               name: mqtt
             - containerPort: 8080
               name: http
+          env:
+            - name: APP_CONFIG
+              value: /app/App.toml
           volumeMounts:
-            - name: conf
+            - name: config
               mountPath: /etc/vernemq/vernemq.conf
               subPath: vernemq.conf
+            - name: config
+              mountPath: /app/App.toml
+              subPath: App.toml
+            - name: foxford
+              mountPath: /app/data/keys/iam.foxford.public_key.pem
+              subPath: iam.foxford.public_key
+            - name: netology
+              mountPath: /app/data/keys/iam.netology.public_key.pem
+              subPath: iam.netology.public_key
+            - name: foxford-prev
+              mountPath: /app/data/keys/foxford.iam.key.binary
+              subPath: iam.key
+            - name: netology-prev
+              mountPath: /app/data/keys/netology.iam.key.binary
+              subPath: iam.key
             - name: tls
               mountPath: /tls
           resources:
@@ -41,9 +59,21 @@ spec:
               cpu: "1"
               memory: 2Gi
       volumes:
-        - name: conf
+        - name: config
           configMap:
             name: mqtt-gateway-config
+        - name: foxford
+          secret:
+            secretName: iam.foxford-2019-02-04-pem-credentials
+        - name: netology
+          secret:
+            secretName: iam.netology-2019-02-04-pem-credentials
+        - name: foxford-prev
+          secret:
+            secretName: foxford-20180915-credentials
+        - name: netology-prev
+          secret:
+            secretName: netology-20181224-credentials
         - name: tls
           secret:
             secretName: tls-certificates
