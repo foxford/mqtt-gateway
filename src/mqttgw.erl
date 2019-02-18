@@ -10,6 +10,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+%% API
+-export([
+    handle_connect/2,
+    handle_publish/3,
+    handle_deliver/3,
+    handle_subscribe/2
+]).
+
 %% Plugin callbacks
 -export([
     start/0,
@@ -174,14 +182,12 @@ handle_subscribe(Topics, ClientId) ->
 -spec start() -> ok.
 start() ->
     {ok, _} = application:ensure_all_started(?APP),
-    ConfigTuple = mqttgw_authn:read_config(read_config("APP_CONFIG")),
-    mqttgw_state:new(),
-    mqttgw_state:put(authn, ConfigTuple),
+    mqttgw_state:put(authn, mqttgw_authn:read_config(read_config("APP_CONFIG"))),
     ok.
 
 -spec stop() -> ok.
 stop() ->
-    application:stop(?APP).
+    ok.
 
 auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
