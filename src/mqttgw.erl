@@ -34,6 +34,10 @@
 }).
 -type client_id() :: #client_id{}.
 
+-type qos() :: 1..3.
+-type topic() :: [binary()].
+-type subscription() :: {topic(), qos()}.
+
 -record (envelope, {
     payload    :: binary(),
     properties :: map()
@@ -44,8 +48,8 @@
 %% API: Connect
 %% =============================================================================
 
--spec handle_connect_authn(binary(), binary()) -> ok | {error, any()}.
-handle_connect_authn(ClientId, Password) ->
+-spec handle_connect(binary(), binary()) -> ok | {error, any()}.
+handle_connect(ClientId, Password) ->
     case mqttgw_state:find(authn) of
         {ok, disabled} ->
             handle_connect_client_id(ClientId, ignore);
@@ -100,6 +104,70 @@ handle_connect_success(ClientId) ->
     ok.
 
 %% =============================================================================
+%% API: Publish
+%% =============================================================================
+
+-spec handle_publish(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_publish(_Topic, Payload, ClientId) ->
+    #client_id{
+        mode=Mode,
+        agent_label=AgentLabel,
+        account_label=AccountLabel,
+        audience=Audience} = ClientId,
+
+    try envelope(
+            Mode, AgentLabel, AccountLabel, Audience,
+            validate_envelope(parse_envelope(Mode, Payload))) of
+        UpdatedPayload ->
+            {ok, [{payload, UpdatedPayload}]}
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: invalid msg=~p, "
+                "exception_type=~p, exception_reason=~p",
+                [Payload, T, R]),
+            {error, bad_message}
+    end.
+
+%% =============================================================================
+%% API: Deliver
+%% =============================================================================
+
+-spec handle_deliver(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_deliver(_Topic, Payload, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try deliver_envelope(Mode, Payload) of
+        UpdatedPayload ->
+            {ok, [{payload, UpdatedPayload}]}
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on deliver: invalid msg=~p, "
+                "exception_type=~p, exception_reason=~p",
+                [Payload, T, R]),
+            {error, bad_message}
+    end.
+
+%% =============================================================================
+%% API: Subscribe
+%% =============================================================================
+
+-spec handle_subscribe([subscription()], client_id()) ->ok | {error, any()}.
+handle_subscribe(Topics, ClientId) ->
+    #client_id{
+        mode=Mode,
+        agent_label=AgentLabel,
+        account_label=AccountLabel,
+        audience=Audience} =ClientId,
+
+    error_logger:info_msg(
+        "Error on subscribe: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
+        [Mode, AgentLabel, AccountLabel, Audience, Topics]),
+
+    ok.
+
+%% =============================================================================
 %% Plugin callbacks
 %% =============================================================================
 
@@ -118,7 +186,7 @@ stop() ->
 auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
     Password, _CleanSession) ->
-    case handle_connect_authn(ClientId, Password) of
+    case handle_connect(ClientId, Password) of
         {error, _} ->
             {error, invalid_credentials};
         Ok ->
@@ -127,61 +195,21 @@ auth_on_register(
 
 auth_on_publish(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    _QoS, _Topic, Payload, _IsRetain) ->
+    _QoS, Topic, Payload, _IsRetain) ->
 
-    #client_id{
-        mode=Mode,
-        agent_label=AgentLabel,
-        account_label=AccountLabel,
-        audience=Audience} = parse_client_id(ClientId),
-
-    try envelope(
-            Mode, AgentLabel, AccountLabel, Audience,
-            validate_envelope(parse_envelope(Mode, Payload))) of
-        UpdatedPayload ->
-            {ok, [{payload, UpdatedPayload}]}
-    catch
-        T:R ->
-            error_logger:error_msg(
-                "Agent failed to publish: invalid msg=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Payload, T, R]),
-            {error, bad_message}
-    end.
+    handle_publish(Topic, Payload, parse_client_id(ClientId)).
 
 on_deliver(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    _Topic, Payload) ->
+    Topic, Payload) ->
 
-    #client_id{mode=Mode} = parse_client_id(ClientId),
-
-    try deliver_envelope(Mode, Payload) of
-        UpdatedPayload ->
-            {ok, [{payload, UpdatedPayload}]}
-    catch
-        T:R ->
-            error_logger:error_msg(
-                "Agent failed to publish: invalid msg=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Payload, T, R]),
-            {error, bad_message}
-    end.
+    handle_deliver(Topic, Payload, parse_client_id(ClientId)).
 
 auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Topics) ->
 
-    #client_id{
-        mode=Mode,
-        agent_label=AgentLabel,
-        account_label=AccountLabel,
-        audience=Audience} = parse_client_id(ClientId),
-
-    error_logger:info_msg(
-        "Agent subscribed: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
-        [Mode, AgentLabel, AccountLabel, Audience, Topics]),
-
-    ok.
+    handle_subscribe(Topics, parse_client_id(ClientId)).
 
 %% =============================================================================
 %% Internal functions
