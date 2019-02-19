@@ -27,10 +27,13 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN set -xe \
     && apt-get update \
     && apt-get -y --no-install-recommends install \
+        musl-dev \
         apt-transport-https \
         ca-certificates \
         curl \
         less
+
+RUN ln -s /usr/lib/x86_64-linux-musl/libc.so /lib/libc.musl-x86_64.so.1
 
 ## Installing VerneMQ
 RUN set -xe \
