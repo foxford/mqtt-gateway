@@ -1,25 +1,26 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM erlang:21-alpine as build-stage
+FROM erlang:21-slim as build-stage
 
 WORKDIR "/build"
 COPY . .
 
 RUN set -xe \
-    && apk add --no-cache --virtual .build-deps \
-        openssh \
+    && apt-get update \
+    && apt-get -y --no-install-recommends install \
+        apt-transport-https \
+        ca-certificates \
+        curl \
         perl \
         git \
         make \
-        curl \
-    && make app && make rel \
-    && apk del .build-deps
+    && make app && make rel
 
 ## -----------------------------------------------------------------------------
 ## App
 ## -----------------------------------------------------------------------------
-FROM ubuntu:18.04
+FROM debian:stretch
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -27,6 +28,7 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN set -xe \
     && apt-get update \
     && apt-get -y --no-install-recommends install \
+        openssl \
         apt-transport-https \
         ca-certificates \
         curl \
@@ -34,8 +36,8 @@ RUN set -xe \
 
 ## Installing VerneMQ
 RUN set -xe \
-    && VERNEMQ_URI='https://github.com/vernemq/vernemq/releases/download/1.7.0/vernemq-1.7.0.bionic.x86_64.deb' \
-    && VERNEMQ_SHA='0934e0286d4f805e18f400f032168b6987a678edb795ee15729c589cd945bef7' \
+    && VERNEMQ_URI='https://github.com/vernemq/vernemq/releases/download/1.7.0/vernemq-1.7.0.stretch.x86_64.deb' \
+    && VERNEMQ_SHA='210aec93e8a46890635578894869952d661717ed' \
     && curl -fSL -o vernemq.deb "${VERNEMQ_URI}" \
         && echo "${VERNEMQ_SHA} vernemq.deb" | sha1sum -c - \
         && set +e; dpkg -i vernemq.deb || apt-get -y -f --no-install-recommends install; set -e \
