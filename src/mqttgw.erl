@@ -182,7 +182,8 @@ handle_subscribe(Topics, ClientId) ->
 -spec start() -> ok.
 start() ->
     {ok, _} = application:ensure_all_started(?APP),
-    mqttgw_state:put(authn, mqttgw_authn:read_config(read_config("APP_CONFIG"))),
+    TomlConfig = read_config("APP_CONFIG"),
+    mqttgw_state:put(authn, mqttgw_authn:read_config(TomlConfig)),
     ok.
 
 -spec stop() -> ok.

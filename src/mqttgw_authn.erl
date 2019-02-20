@@ -16,10 +16,11 @@
 %% API
 %% =============================================================================
 
--spec read_config(toml:config()) -> disabled | {enabled, map()}.
+-spec read_config(toml:config()) -> disabled | {enabled, config()}.
 read_config(TomlConfig) ->
-    case toml:get_value(["authn"], "disabled", TomlConfig) of
-        none ->
+    case toml:get_value(["features"], "authn", TomlConfig) of
+        {boolean, false} -> disabled;
+        _ ->
             Config =
                 toml:folds(
                     ["authn"],
@@ -32,9 +33,7 @@ read_config(TomlConfig) ->
                     #{},
                     TomlConfig),
 
-            {enabled, Config};
-        {boolean, true} ->
-            disabled
+            {enabled, Config}
     end.
 
 -spec verify(binary(), config()) -> claims().
@@ -86,7 +85,7 @@ parse_keyfile(Path, Section, Config) ->
     MaybeEncodedKey =
         case file:read_file(Path) of
             {ok, Val} -> Val;
-            {error, Reason} -> error({bad_keypath, Reason})
+            {error, Reason} -> error({bad_keypath, Path, Reason})
         end,
     Basename = filename:basename(Path, ".sample"),
     case filename:extension(Basename) of
