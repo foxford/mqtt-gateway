@@ -76,4 +76,4 @@ spec:
             secretName: netology-20181224-credentials
         - name: tls
           secret:
-            secretName: testing-svc-netology-group-services 
+            secretName: tls-certificate 
