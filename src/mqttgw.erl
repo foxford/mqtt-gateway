@@ -32,7 +32,7 @@
 -define(APP, ?MODULE).
 
 %% Types
--type connection_mode() :: default | payload_only | bridge.
+-type connection_mode() :: default | payload_only | service | bridge.
 
 -record(client_id, {
     mode          :: connection_mode(),
@@ -78,7 +78,7 @@ handle_connect_password(ClientId, Password, Config) ->
     catch
         T:R ->
             error_logger:warning_msg(
-                "Error on connect: invalid password, client_id=~p, "
+                "Error on connect: an invalid password, client_id=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [ClientId, T, R]),
             {error, bad_username_or_password}
@@ -92,7 +92,7 @@ handle_connect_client_id(ClientId, Claims) ->
     catch
         T:R ->
             error_logger:warning_msg(
-                "Error on connect: invalid client_id=~p, "
+                "Error on connect: an invalid client_id=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [ClientId, T, R]),
             {error, client_identifier_not_valid}
@@ -116,7 +116,23 @@ handle_connect_success(ClientId) ->
 %% =============================================================================
 
 -spec handle_publish(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
-handle_publish(_Topic, Payload, ClientId) ->
+handle_publish(Topic, Payload, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
+        _ ->
+            handle_publish_envelope(Topic, Payload, ClientId)
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: an invalid topic=~p for the mode=~p, "
+                "exception_type=~p, exception_reason=~p",
+                [Topic, Mode, T, R]),
+            {error, not_authorized}
+    end.
+
+-spec handle_publish_envelope(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_publish_envelope(_Topic, Payload, ClientId) ->
     #client_id{
         mode=Mode,
         agent_label=AgentLabel,
@@ -131,11 +147,31 @@ handle_publish(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: invalid msg=~p, "
+                "Error on publish: an invalid msg=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
             {error, bad_message}
     end.
+
+-spec verify_publish_topic(topic(), binary(), binary(), connection_mode()) -> ok.
+%% Broadcast:
+%% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
+verify_publish_topic([<<"apps">>, Me, <<"api">>, _ | _], Me, _AgentId, Mode)
+    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    -> ok;
+%% Multicast:
+%% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
+verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId, Me, _Mode)
+    -> ok;
+%% Unicast:
+%% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
+%% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
+verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], _AccountId, Me, Mode)
+    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    -> ok;
+%% Forbidding publishing to any other topics
+verify_publish_topic(Topic, _AccountId, AgentId, Mode)
+    -> error({nomatch_publish_topic, Topic, AgentId, Mode}).
 
 %% =============================================================================
 %% API: Deliver
@@ -151,7 +187,7 @@ handle_deliver(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on deliver: invalid msg=~p, "
+                "Error on deliver: an invalid msg=~p, "
                 "exception_type=~p, exception_reason=~p",
                 [Payload, T, R]),
             {error, bad_message}
@@ -163,6 +199,23 @@ handle_deliver(_Topic, Payload, ClientId) ->
 
 -spec handle_subscribe([subscription()], client_id()) ->ok | {error, any()}.
 handle_subscribe(Topics, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try [verify_subscribe_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode)
+         || Topic <- Topics] of
+        _ ->
+            handle_subscribe_success(Topics, ClientId)
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on subscribe: an invalid topic for the mode=~p, "
+                "exception_type=~p, exception_reason=~p",
+                [Mode, T, R]),
+            {error, not_authorized}
+    end.
+
+-spec handle_subscribe_success([subscription()], client_id()) ->ok | {error, any()}.
+handle_subscribe_success(Topics, ClientId) ->
     #client_id{
         mode=Mode,
         agent_label=AgentLabel,
@@ -170,10 +223,33 @@ handle_subscribe(Topics, ClientId) ->
         audience=Audience} =ClientId,
 
     error_logger:info_msg(
-        "Error on subscribe: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
+        "Agent subscribed: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
         [Mode, AgentLabel, AccountLabel, Audience, Topics]),
 
     ok.
+
+-spec verify_subscribe_topic(topic(), binary(), binary(), connection_mode()) -> ok.
+%% Broadcast:
+%% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
+verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, _Mode)
+    %% TODO: users have to ask permission to subscribe to app's events
+    %% when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    -> ok;
+%% Multicast:
+%% <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
+verify_subscribe_topic([<<"agents">>, _, <<"api">>, _, <<"out">>, Me], Me, _AgentId, Mode)
+    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    -> ok;
+%% Unicast:
+%% <- request(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+%% <- request(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+%% <- response(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+%% <- response(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+verify_subscribe_topic([<<"agents">>, Me, <<"api">>, _, <<"in">>, _], _AccountId, Me, _Mode)
+    -> ok;
+%% Forbidding subscribing to any other topics
+verify_subscribe_topic(Topic, _AccountId, AgentId, Mode)
+    -> error({nomatch_subscribe_topic, Topic, AgentId, Mode}).
 
 %% =============================================================================
 %% Plugin callbacks
@@ -235,6 +311,20 @@ read_config_file(Path) ->
         {ok, Config} -> Config;
         {error, Reason} -> exit({invalid_config_path, Reason})
     end.
+
+-spec agent_id(client_id()) -> binary().
+agent_id(ClientId) ->
+    #client_id{agent_label=Label} = ClientId,
+
+    <<Label/binary, $., (account_id(ClientId))/binary>>.
+
+-spec account_id(client_id()) -> binary().
+account_id(ClientId) ->
+    #client_id{
+        account_label=Label,
+        audience=Audience} = ClientId,
+
+    <<Label/binary, $., Audience/binary>>.
 
 -spec validate_client_id(client_id(), mqttgw_authn:claims() | ignore) -> client_id().
 validate_client_id(Val, Claims) ->
