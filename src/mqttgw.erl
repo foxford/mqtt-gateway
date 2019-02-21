@@ -65,7 +65,7 @@ handle_connect(ClientId, Password) ->
             handle_connect_password(ClientId, Password, Config);
         _ ->
             error_logger:warning_msg(
-                "Error on connect: authn config isn't found, client_id=~p",
+                "Error on connect: authn config isn't found, client_id = ~p",
                 [ClientId]),
             {error, impl_specific_error}
     end.
@@ -78,8 +78,8 @@ handle_connect_password(ClientId, Password, Config) ->
     catch
         T:R ->
             error_logger:warning_msg(
-                "Error on connect: an invalid password, client_id=~p, "
-                "exception_type=~p, exception_reason=~p",
+                "Error on connect: an invalid password, client_id = ~p, "
+                "exception_type = ~p, exception_reason = ~p",
                 [ClientId, T, R]),
             {error, bad_username_or_password}
     end.
@@ -92,23 +92,19 @@ handle_connect_client_id(ClientId, Claims) ->
     catch
         T:R ->
             error_logger:warning_msg(
-                "Error on connect: an invalid client_id=~p, "
-                "exception_type=~p, exception_reason=~p",
+                "Error on connect: an invalid client_id = ~p, "
+                "exception_type = ~p, exception_reason = ~p",
                 [ClientId, T, R]),
             {error, client_identifier_not_valid}
     end.
 
 -spec handle_connect_success(client_id()) -> ok | {error, any()}.
 handle_connect_success(ClientId) ->
-    #client_id{
-        mode=Mode,
-        agent_label=AgentLabel,
-        account_label=AccountLabel,
-        audience=Audience} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     error_logger:info_msg(
-        "Agent connected: mode=~p, agent_label=~s, account_label=~s, audience=~s",
-        [Mode, AgentLabel, AccountLabel, Audience]),
+        "Agent connected: mode = '~s', agent_id = '~s'",
+        [Mode, agent_id(ClientId)]),
     ok.
 
 %% =============================================================================
@@ -117,6 +113,20 @@ handle_connect_success(ClientId) ->
 
 -spec handle_publish(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
 handle_publish(Topic, Payload, ClientId) ->
+    case mqttgw_state:find(authz) of
+        {ok, disabled} ->
+            handle_publish_envelope(Topic, Payload, ClientId);
+        {ok, {enabled, _Config}} ->
+            handle_publish_topic(Topic, Payload, ClientId);
+        _ ->
+            error_logger:warning_msg(
+                "Error on publish: authz config isn't found, agent_id = '~s'",
+                [agent_id(ClientId)]),
+            {error, impl_specific_error}
+    end.
+
+-spec handle_publish_topic(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_publish_topic(Topic, Payload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
@@ -125,9 +135,9 @@ handle_publish(Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid topic=~p for the mode=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Topic, Mode, T, R]),
+                "Error on publish: an invalid topic = ~p for the mode = '~s', agent_id = '~s' "
+                "exception_type = ~p, exception_reason = ~p",
+                [Topic, Mode, agent_id(ClientId), T, R]),
             {error, not_authorized}
     end.
 
@@ -147,9 +157,9 @@ handle_publish_envelope(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid msg=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Payload, T, R]),
+                "Error on publish: an invalid msg = ~p, agent_id = '~s' "
+                "exception_type = ~p, exception_reason = ~p",
+                [Payload, agent_id(ClientId), T, R]),
             {error, bad_message}
     end.
 
@@ -187,9 +197,9 @@ handle_deliver(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on deliver: an invalid msg=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Payload, T, R]),
+                "Error on deliver: an invalid msg = ~p, agent_id = '~s' "
+                "exception_type = ~p, exception_reason = ~p",
+                [Payload, agent_id(ClientId), T, R]),
             {error, bad_message}
     end.
 
@@ -199,6 +209,20 @@ handle_deliver(_Topic, Payload, ClientId) ->
 
 -spec handle_subscribe([subscription()], client_id()) ->ok | {error, any()}.
 handle_subscribe(Topics, ClientId) ->
+    case mqttgw_state:find(authz) of
+        {ok, disabled} ->
+            handle_subscribe_success(Topics, ClientId);
+        {ok, {enabled, _Config}} ->
+            handle_subscribe_topic(Topics, ClientId);
+        _ ->
+            error_logger:warning_msg(
+                "Error on subscribe: authz config isn't found, agent_id = '~s'",
+                [agent_id(ClientId)]),
+            {error, impl_specific_error}
+    end.
+
+-spec handle_subscribe_topic([subscription()], client_id()) ->ok | {error, any()}.
+handle_subscribe_topic(Topics, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try [verify_subscribe_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode)
@@ -208,23 +232,19 @@ handle_subscribe(Topics, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on subscribe: an invalid topic for the mode=~p, "
-                "exception_type=~p, exception_reason=~p",
-                [Mode, T, R]),
+                "Error on subscribe: an invalid topic for the mode = '~s', agent_id = '~s' "
+                "exception_type = ~p, exception_reason = ~p",
+                [Mode, agent_id(ClientId), T, R]),
             {error, not_authorized}
     end.
 
 -spec handle_subscribe_success([subscription()], client_id()) ->ok | {error, any()}.
 handle_subscribe_success(Topics, ClientId) ->
-    #client_id{
-        mode=Mode,
-        agent_label=AgentLabel,
-        account_label=AccountLabel,
-        audience=Audience} =ClientId,
+    #client_id{mode=Mode} =ClientId,
 
     error_logger:info_msg(
-        "Agent subscribed: mode=~p, agent_label=~s, account_label=~s, audience=~s, topics=~p",
-        [Mode, AgentLabel, AccountLabel, Audience, Topics]),
+        "Agent subscribed: mode = '~s', agent_id = '~s', topics = ~p",
+        [Mode, agent_id(ClientId), Topics]),
 
     ok.
 
@@ -260,6 +280,7 @@ start() ->
     {ok, _} = application:ensure_all_started(?APP),
     TomlConfig = read_config("APP_CONFIG"),
     mqttgw_state:put(authn, mqttgw_authn:read_config(TomlConfig)),
+    mqttgw_state:put(authz, mqttgw_authz:read_config(TomlConfig)),
     ok.
 
 -spec stop() -> ok.
@@ -554,6 +575,7 @@ prop_onconnect() ->
         begin
             mqttgw_state:new(),
             mqttgw_state:put(authn, disabled),
+            mqttgw_state:put(authz, disabled),
             ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)
         end).
 
@@ -570,6 +592,8 @@ prop_onpublish() ->
         {binary_utf8_t(), subscriber_id_t(),
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
+            mqttgw_state:new(),
+            mqttgw_state:put(authz, disabled),
             #client_id{
                 mode=Mode,
                 agent_label=AgentLabel,
@@ -598,6 +622,8 @@ prop_onpublish() ->
         end).
 
 bridge_missing_properties_test_() ->
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
     Test =
         [{"missing properties", #{}},
          {"missing agent_label", #{<<"account_label">> => <<>>, <<"audience">> => <<>>}},
@@ -642,6 +668,8 @@ prop_ondeliver() ->
         end).
 
 prop_onsubscribe() ->
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
     ?FORALL(
         {Username, SubscriberId, Topics},
         {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},

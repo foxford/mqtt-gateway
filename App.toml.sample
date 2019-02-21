@@ -3,5 +3,10 @@ audience = ["example.net"]
 algorithm = "HS256"
 key = "/app/data/keys/iam.key.binary.sample"
 
+[authz."svc.example.org"]
+type = "trusted"
+trusted = ["svc.example.org"]
+
 [features]
 authn = false
+authz = false
