@@ -1,5 +1,14 @@
+[id]
+label = "mqtt-gateway"
+audience = "svc.example.org"
+
 [authn."iam.svc.example.net"]
-audience = ["example.net"]
+audience = ["usr.example.net"]
+algorithm = "HS256"
+key = "/app/data/keys/iam.key.binary.sample"
+
+[authn."svc.example.org"]
+audience = ["svc.example.org"]
 algorithm = "HS256"
 key = "/app/data/keys/iam.key.binary.sample"
 

@@ -3,7 +3,7 @@
 %% API
 -export([
     read_config/1,
-    authorize/2
+    authorize/3
 ]).
 
 %% Types
@@ -22,7 +22,7 @@ read_config(TomlConfig) ->
         _ ->
             Config =
                 toml:folds(
-                    ["authn"],
+                    ["authz"],
                     fun(_Config, Section, Acc) ->
                         Aud = parse_audience(Section),
                         Type = parse_type(Section, TomlConfig),
@@ -32,12 +32,23 @@ read_config(TomlConfig) ->
                     #{},
                     TomlConfig),
 
-            {enabled, Config}
+            Id = mqttgw_id:read_config(TomlConfig),
+            {enabled, Id, Config}
     end.
 
--spec authorize(binary(), config()) -> boolean().
-authorize(_Audience, _Config) ->
-    false.
+-spec authorize(binary(), mqttgw_authn:account_id(), config()) -> ok.
+authorize(Audience, AccountId, Config) ->
+    case maps:find(Audience, Config) of
+        {ok, Inner} ->
+            #{trusted := Trusted} = Inner,
+            #{audience := SAud} = AccountId,
+            case gb_sets:is_member(SAud, Trusted) of
+                true -> ok;
+                _ -> error({nomatch_trusted, SAud})
+            end;
+        _ ->
+            error({missing_authz_config, Audience})
+    end.
 
 %% =============================================================================
 %% Internal functions
@@ -52,7 +63,7 @@ parse_audience(Val) ->
 -spec parse_type(toml:section(), toml:config()) -> trusted.
 parse_type(Section, Config) ->
     case toml:get_value(Section, "type", Config) of
-        {string, <<"trusted">>} -> trusted;
+        {string, "trusted"} -> trusted;
         none -> error(missing_type);
         Other -> error({bad_type, Other})
     end.
