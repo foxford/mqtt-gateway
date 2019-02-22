@@ -32,7 +32,7 @@
 -define(APP, ?MODULE).
 
 %% Types
--type connection_mode() :: default | payload_only | service | bridge.
+-type connection_mode() :: user | service_payload_only | service | bridge.
 
 -record(client_id, {
     mode          :: connection_mode(),
@@ -130,7 +130,7 @@ handle_connect_authz_config(ClientId, AccountId) ->
     connection_mode(), client_id(), mqttgw_authn:account_id(),
     mqttgw_id:id(), mqttgw_authz:config())
     -> ok | {error, any()}.
-handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
+handle_connect_authz(user, ClientId, _AccountId, _Me, _Config) ->
     handle_connect_success(ClientId);
 handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
     #client_id{mode=Mode} = ClientId,
@@ -221,7 +221,7 @@ handle_publish_envelope(_Topic, Payload, ClientId) ->
 %% Broadcast:
 %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
 verify_publish_topic([<<"apps">>, Me, <<"api">>, _ | _], Me, _AgentId, Mode)
-    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
@@ -231,7 +231,7 @@ verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId,
 %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], _AccountId, Me, Mode)
-    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Forbidding publishing to any other topics
 verify_publish_topic(Topic, _AccountId, AgentId, Mode)
@@ -312,12 +312,12 @@ handle_subscribe_success(Topics, ClientId) ->
 %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
 verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, _Mode)
     %% TODO: users have to ask permission to subscribe to app's events
-    %% when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    %% when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
 verify_subscribe_topic([<<"agents">>, _, <<"api">>, _, <<"out">>, Me], Me, _AgentId, Mode)
-    when (Mode =:= payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Unicast:
 %% <- request(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
@@ -421,9 +421,11 @@ validate_client_id(Val) ->
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, default, <<>>);
-parse_client_id(<<"v1.mqtt3.payload-only/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, payload_only, <<>>);
+    parse_v1_agent_label(R, user, <<>>);
+parse_client_id(<<"v1.mqtt3.payload-only/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service_payload_only, <<>>);
+parse_client_id(<<"v1.mqtt3/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service, <<>>);
 parse_client_id(<<"v1.mqtt3/bridge-agents/", R/bits>>) ->
     parse_v1_agent_label(R, bridge, <<>>).
 
@@ -495,12 +497,12 @@ validate_envelope(Val) ->
     Val.
 
 -spec parse_envelope(connection_mode(), binary()) -> envelope().
-parse_envelope(Mode, Message) when (Mode =:= default) or (Mode =:= bridge) ->
+parse_envelope(Mode, Message) when (Mode =:= user) or (Mode =:= service) or (Mode =:= bridge) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
     #envelope{payload=Payload, properties=Properties};
-parse_envelope(payload_only, Message) ->
+parse_envelope(service_payload_only, Message) ->
     #envelope{payload=Message, properties=#{}}.
 
 -spec envelope(connection_mode(), binary(), binary(), binary(), envelope()) -> binary().
@@ -509,7 +511,7 @@ envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
         payload=Payload,
         properties=Properties} = Envelope,
 
-    %% Everything is "event" by default
+    %% Everything is "event" by user
     UpdatedProperties0 =
         case maps:find(<<"type">>, Properties) of
             error -> Properties#{<<"type">> => <<"event">>};
@@ -536,11 +538,11 @@ envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
 
 -spec deliver_envelope(connection_mode(), binary()) -> binary().
 deliver_envelope(Mode, Payload) ->
-    Envelope = validate_envelope(parse_envelope(default, Payload)),
+    Envelope = validate_envelope(parse_envelope(user, Payload)),
     case Mode of
-        Mode when (Mode =:= default) or (Mode =:= bridge) ->
+        Mode when (Mode =:= user) or (Mode =:= service) or (Mode =:= bridge) ->
             Payload;
-        payload_only ->
+        service_payload_only ->
             #envelope{payload=InnerPayload} = Envelope,
             InnerPayload
     end.
@@ -554,11 +556,12 @@ deliver_envelope(Mode, Payload) ->
 version_mode_t() ->
     ?LET(
         Index,
-        choose(1, 3),
+        choose(1, 4),
         lists:nth(Index,
-            [{<<"v1.mqtt3">>, <<"bridge-agents">>},
-             {<<"v1.mqtt3">>, <<"agents">>},
-             {<<"v1.mqtt3.payload-only">>, <<"agents">>}])).
+            [{<<"v1.mqtt3">>, <<"agents">>},
+             {<<"v1.mqtt3">>, <<"bridge-agents">>},
+             {<<"v1.mqtt3">>, <<"service-agents">>},
+             {<<"v1.mqtt3.payload-only">>, <<"service-agents">>}])).
 
 client_id_t() ->
     ?LET(
@@ -652,11 +655,13 @@ prop_onpublish() ->
             ExpectedMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             InputMessage =
                 case Mode of
+                    user ->
+                        jsx:encode(#{payload => Payload});
                     bridge ->
                         jsx:encode(#{payload => Payload, properties => ExpectedAuthnProps});
-                    default ->
+                    service ->
                         jsx:encode(#{payload => Payload});
-                    payload_only ->
+                    service_payload_only ->
                         Payload
                 end,
 
@@ -701,9 +706,10 @@ prop_ondeliver() ->
             InputMessage = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
             ExpectedMessage =
                 case Mode of
-                    bridge       -> InputMessage;
-                    default      -> InputMessage;
-                    payload_only -> Payload
+                    user                 -> InputMessage;
+                    bridge               -> InputMessage;
+                    service              -> InputMessage;
+                    service_payload_only -> Payload
                 end,
 
             {ok, Modifiers} =
