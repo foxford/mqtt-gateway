@@ -58,37 +58,9 @@
 
 -spec handle_connect(binary(), binary()) -> ok | {error, any()}.
 handle_connect(ClientId, Password) ->
-    case mqttgw_state:find(authn) of
-        {ok, disabled} ->
-            handle_connect_client_id(ClientId, ignore);
-        {ok, {enabled, Config}} ->
-            handle_connect_password(ClientId, Password, Config);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: authn config isn't found, client_id = ~p",
-                [ClientId]),
-            {error, impl_specific_error}
-    end.
-
--spec handle_connect_password(binary(), binary(), mqttgw_authn:config()) -> ok | {error, any()}.
-handle_connect_password(ClientId, Password, Config) ->
-    try mqttgw_authn:verify(Password, Config) of
-        Claims ->
-            handle_connect_client_id(ClientId, Claims)
-    catch
-        T:R ->
-            error_logger:warning_msg(
-                "Error on connect: an invalid password, client_id = ~p, "
-                "exception_type = ~p, exception_reason = ~p",
-                [ClientId, T, R]),
-            {error, bad_username_or_password}
-    end.
-
--spec handle_connect_client_id(binary(), mqttgw_authn:claims() | ignore) -> ok | {error, any()}.
-handle_connect_client_id(ClientId, Claims) ->
-    try validate_client_id(parse_client_id(ClientId), Claims) of
+    try validate_client_id(parse_client_id(ClientId)) of
         Val ->
-            handle_connect_success(Val)
+            handle_connect_authn_config(Val, Password)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -98,13 +70,90 @@ handle_connect_client_id(ClientId, Claims) ->
             {error, client_identifier_not_valid}
     end.
 
+-spec handle_connect_authn_config(client_id(), binary()) -> ok | {error, any()}.
+handle_connect_authn_config(ClientId, Password) ->
+    case mqttgw_state:find(authn) of
+        {ok, disabled} ->
+            DirtyAccountId =
+                #{label => ClientId#client_id.account_label,
+                  audience => ClientId#client_id.audience},
+            handle_connect_authz_config(ClientId, DirtyAccountId);
+        {ok, {enabled, Config}} ->
+            handle_connect_authn(ClientId, Password, Config);
+        _ ->
+            error_logger:warning_msg(
+                "Error on connect: authn config isn't found for the agent = '~s'",
+                [agent_id(ClientId)]),
+            {error, impl_specific_error}
+    end.
+
+-spec handle_connect_authn(client_id(), binary(), mqttgw_authn:config()) -> ok | {error, any()}.
+handle_connect_authn(ClientId, Password, Config) ->
+    DirtyAccountId =
+        #{label => ClientId#client_id.account_label,
+          audience => ClientId#client_id.audience},
+    try mqttgw_authn:authenticate(Password, Config) of
+        AccountId when AccountId =:= DirtyAccountId ->
+            handle_connect_authz_config(ClientId, AccountId);
+        AccountId ->
+            error_logger:warning_msg(
+                "Error on connect: account_id = '~s' in the password is "
+                " different from the account_id = '~s' in the client_id",
+                [AccountId, DirtyAccountId]),
+            {error, not_authorized}
+    catch
+        T:R ->
+            error_logger:warning_msg(
+                "Error on connect: an invalid password of the agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [agent_id(ClientId), T, R]),
+            {error, bad_username_or_password}
+    end.
+
+-spec handle_connect_authz_config(client_id(), mqttgw_authn:account_id()) -> ok | {error, any()}.
+handle_connect_authz_config(ClientId, AccountId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    case mqttgw_state:find(authz) of
+        {ok, disabled} ->
+            handle_connect_success(ClientId);
+        {ok, {enabled, Me, Config}} ->
+            handle_connect_authz(Mode, ClientId, AccountId, Me, Config);
+        _ ->
+            error_logger:warning_msg(
+                "Error on publish: authz config isn't found for the agent = '~s'",
+                [agent_id(ClientId)]),
+            {error, not_authorized}
+    end.
+
+-spec handle_connect_authz(
+    connection_mode(), client_id(), mqttgw_authn:account_id(),
+    mqttgw_id:id(), mqttgw_authz:config())
+    -> ok | {error, any()}.
+handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
+    handle_connect_success(ClientId);
+handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try mqttgw_authz:authorize(maps:get(audience, Me), AccountId, Config) of
+        _ ->
+            handle_connect_success(ClientId)
+    catch
+        T:R ->
+            error_logger:warning_msg(
+                "Error on connect: connecting in mode = '~s' isn't allowed for the agent = ~p, "
+                "exception_type = ~p, exception_reason = ~p",
+                [Mode, agent_id(ClientId), T, R]),
+            {error, not_authorized}
+    end.
+
 -spec handle_connect_success(client_id()) -> ok | {error, any()}.
 handle_connect_success(ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     error_logger:info_msg(
-        "Agent connected: mode = '~s', agent_id = '~s'",
-        [Mode, agent_id(ClientId)]),
+        "Agent = '~s' connected: mode = '~s'",
+        [agent_id(ClientId), Mode]),
     ok.
 
 %% =============================================================================
@@ -113,20 +162,24 @@ handle_connect_success(ClientId) ->
 
 -spec handle_publish(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
 handle_publish(Topic, Payload, ClientId) ->
+    handle_publish_authz_config(Topic, Payload, ClientId).
+
+-spec handle_publish_authz_config(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_publish_authz_config(Topic, Payload, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             handle_publish_envelope(Topic, Payload, ClientId);
-        {ok, {enabled, _Config}} ->
-            handle_publish_topic(Topic, Payload, ClientId);
+        {ok, {enabled, _Me, _Config}} ->
+            handle_publish_authz(Topic, Payload, ClientId);
         _ ->
             error_logger:warning_msg(
-                "Error on publish: authz config isn't found, agent_id = '~s'",
+                "Error on publish: authz config isn't found for the agent = '~s'",
                 [agent_id(ClientId)]),
-            {error, impl_specific_error}
+            {error, not_authorized}
     end.
 
--spec handle_publish_topic(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
-handle_publish_topic(Topic, Payload, ClientId) ->
+-spec handle_publish_authz(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+handle_publish_authz(Topic, Payload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
@@ -135,9 +188,10 @@ handle_publish_topic(Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid topic = ~p for the mode = '~s', agent_id = '~s' "
+                "Error on publish: publishing to the topic = ~p isn't allowed "
+                " for the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Topic, Mode, agent_id(ClientId), T, R]),
+                [Topic, agent_id(ClientId), Mode, T, R]),
             {error, not_authorized}
     end.
 
@@ -157,7 +211,7 @@ handle_publish_envelope(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid msg = ~p, agent_id = '~s' "
+                "Error on publish: an invalid message = ~p from the agent = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, agent_id(ClientId), T, R]),
             {error, bad_message}
@@ -197,7 +251,7 @@ handle_deliver(_Topic, Payload, ClientId) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on deliver: an invalid msg = ~p, agent_id = '~s' "
+                "Error on deliver: an invalid message = ~p from the agent = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, agent_id(ClientId), T, R]),
             {error, bad_message}
@@ -208,33 +262,38 @@ handle_deliver(_Topic, Payload, ClientId) ->
 %% =============================================================================
 
 -spec handle_subscribe([subscription()], client_id()) ->ok | {error, any()}.
-handle_subscribe(Topics, ClientId) ->
+handle_subscribe(Subscriptions, ClientId) ->
+    handle_subscribe_authz_config(Subscriptions, ClientId).
+
+-spec handle_subscribe_authz_config([subscription()], client_id()) ->ok | {error, any()}.
+handle_subscribe_authz_config(Subscriptions, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
-            handle_subscribe_success(Topics, ClientId);
-        {ok, {enabled, _Config}} ->
-            handle_subscribe_topic(Topics, ClientId);
+            handle_subscribe_success(Subscriptions, ClientId);
+        {ok, {enabled, _Me, _Config}} ->
+            handle_subscribe_authz(Subscriptions, ClientId);
         _ ->
             error_logger:warning_msg(
-                "Error on subscribe: authz config isn't found, agent_id = '~s'",
+                "Error on subscribe: authz config isn't found for the agent = '~s'",
                 [agent_id(ClientId)]),
-            {error, impl_specific_error}
+            {error, not_authorized}
     end.
 
--spec handle_subscribe_topic([subscription()], client_id()) ->ok | {error, any()}.
-handle_subscribe_topic(Topics, ClientId) ->
+-spec handle_subscribe_authz([subscription()], client_id()) ->ok | {error, any()}.
+handle_subscribe_authz(Subscriptions, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try [verify_subscribe_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode)
-         || Topic <- Topics] of
+         || {Topic, _QoS} <- Subscriptions] of
         _ ->
-            handle_subscribe_success(Topics, ClientId)
+            handle_subscribe_success(Subscriptions, ClientId)
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on subscribe: an invalid topic for the mode = '~s', agent_id = '~s' "
+                "Error on subscribe: one of the subscriptions = ~p isn't allowed "
+                "for the agent = '~s' using mode = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
-                [Mode, agent_id(ClientId), T, R]),
+                [Subscriptions, agent_id(ClientId), Mode, T, R]),
             {error, not_authorized}
     end.
 
@@ -243,8 +302,8 @@ handle_subscribe_success(Topics, ClientId) ->
     #client_id{mode=Mode} =ClientId,
 
     error_logger:info_msg(
-        "Agent subscribed: mode = '~s', agent_id = '~s', topics = ~p",
-        [Mode, agent_id(ClientId), Topics]),
+        "Agent = '~s' subscribed: mode = '~s', topics = ~p",
+        [agent_id(ClientId), Mode, Topics]),
 
     ok.
 
@@ -311,9 +370,9 @@ on_deliver(
 
 auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    Topics) ->
+    Subscriptions) ->
 
-    handle_subscribe(Topics, parse_client_id(ClientId)).
+    handle_subscribe(Subscriptions, parse_client_id(ClientId)).
 
 %% =============================================================================
 %% Internal functions
@@ -347,8 +406,8 @@ account_id(ClientId) ->
 
     <<Label/binary, $., Audience/binary>>.
 
--spec validate_client_id(client_id(), mqttgw_authn:claims() | ignore) -> client_id().
-validate_client_id(Val, Claims) ->
+-spec validate_client_id(client_id()) -> client_id().
+validate_client_id(Val) ->
     #client_id{
         agent_label=AgentLabel,
         account_label=AccountLabel,
@@ -358,21 +417,7 @@ validate_client_id(Val, Claims) ->
     true = is_binary(AccountLabel),
     true = is_binary(Audience),
 
-    case Claims of
-        ignore -> Val;
-        _ ->
-            verify_client_account_label(AccountLabel, Claims),
-            verify_client_audience(Audience, Claims),
-            Val
-    end.
-
--spec verify_client_account_label(binary(), mqttgw_authn:claims()) -> ok.
-verify_client_account_label(V, #{<<"sub">> := V}) -> ok;
-verify_client_account_label(C, #{<<"sub">> := T}) -> error({nomatch_agent_label, C, T}).
-
--spec verify_client_audience(binary(), mqttgw_authn:claims()) -> ok.
-verify_client_audience(V, #{<<"aud">> := V}) -> ok;
-verify_client_audience(C, #{<<"aud">> := T}) -> error({nomatch_audience, C, T}).
+    Val.
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->

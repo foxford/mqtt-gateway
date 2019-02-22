@@ -3,14 +3,14 @@
 %% API
 -export([
     read_config/1,
-    verify/2
+    authenticate/2
 ]).
 
 %% Types
 -type config() :: map().
--type claims() :: map().
+-type account_id() :: #{label := binary(), audience := binary()}.
 
--export_types([config/1, claims/1]).
+-export_types([config/1, account_id/1]).
 
 %% =============================================================================
 %% API
@@ -36,22 +36,26 @@ read_config(TomlConfig) ->
             {enabled, Config}
     end.
 
--spec verify(binary(), config()) -> claims().
-verify(Token, Config) ->
-    jose_jws_compact:decode_fn(
-        fun([ _, #{<<"iss">> := Iss, <<"aud">> := Aud} | _ ], Opts0) ->
-            case maps:find(Iss, Config) of
-                {ok, #{audience := AudS, algorithm := Alg, key := Key}} ->
-                    %% Verifying expiration time of the token
-                    Opts1 = Opts0#{verify => [exp]},
-                    %% Verifying that audience within token is allowed for the issuer
-                    true = gb_sets:is_member(Aud, AudS),
-                    {ok, {Alg, Key, Opts1}};
-                _ ->
-                    {error, {missing_authn_config, Iss}}
-            end
-        end,
-        Token).
+-spec authenticate(binary(), config()) -> account_id().
+authenticate(Token, Config) ->
+    #{<<"sub">> := Sub, <<"aud">> := Aud} =
+        jose_jws_compact:decode_fn(
+            fun([ _, #{<<"iss">> := Iss, <<"aud">> := Aud} | _ ], Opts0) ->
+                case maps:find(Iss, Config) of
+                    {ok, #{audience := AudS, algorithm := Alg, key := Key}} ->
+                        %% Verifying expiration time of the token
+                        Opts1 = Opts0#{verify => [exp]},
+                        %% Verifying that audience within token is allowed for the issuer
+                        true = gb_sets:is_member(Aud, AudS),
+                        {ok, {Alg, Key, Opts1}};
+                    _ ->
+                        {error, {missing_authn_config, Iss}}
+                end
+            end,
+            Token),
+
+    #{label => Sub,
+      audience => Aud}.
 
 %% =============================================================================
 %% Internal functions
