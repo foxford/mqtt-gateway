@@ -29,7 +29,10 @@ spec:
               name: http
           env:
             - name: APP_CONFIG
-              value: /app/App.toml
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_CONFIG
           volumeMounts:
             - name: config
               mountPath: /etc/vernemq/vernemq.conf
