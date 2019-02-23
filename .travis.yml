@@ -20,7 +20,7 @@ jobs:
       script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/docs.sh
     - stage: deploy
       name: Kubernetes
-      script: ./deploy.init.sh && ./deploy/run.sh
+      script: ./deploy.init.sh && ./deploy/travis-run.sh
 stages:
   - name: check
   - name: deploy

@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+## Initializing deploy for Travis CI
+if [[ "${TRAVIS}" ]]; then
+    if [[ "${TRAVIS_TAG}" ]]; then
+        NAMESPACE='production'
+    else
+        NAMESPACE='staging'
+    fi
+fi
+
 if [[ ! ${NAMESPACE} ]]; then echo "NAMESPACE isn't specified" 1>&2; exit 1; fi
 if [[ ! ${GITHUB_TOKEN} ]]; then echo "GITHUB_TOKEN isn't specified" 1>&2; exit 1; fi
 
@@ -21,11 +30,11 @@ set -ex
 
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca.crt"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/docs.sh"
-FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/run.sh"
+FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/travis-run.sh"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/_/mqtt-gateway.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/_/mqtt-gateway-headless.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-config.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-environment.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml"
 
-chmod u+x deploy/{docs.sh,run.sh}
+chmod u+x deploy/{docs.sh,travis-run.sh}
