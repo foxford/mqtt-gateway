@@ -33,9 +33,17 @@ docker run -ti --rm \
     -e APP_AUTHZ_ENABLED=0 \
     -p 1883:1883 \
     sandbox/mqtt-gateway
-## Publishing a message to the broker
-MQTT_CLIENT_ID='v1.mqtt3/agents/test.usr.john-doe.example.net' \
-    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
+
+## Subscribing to messages
+mosquitto_sub -h $(docker-machine ip) \
+    -i 'v1.mqtt3/agents/test-sub.usr.john-doe.example.net' \
+    -t 'foo'
+
+## Publishing a message
+mosquitto_pub -h $(docker-machine ip) \
+    -i 'v1.mqtt3/agents/test-pub.usr.john-doe.example.net' \
+    -t 'foo' \
+    -m '{"payload": "bar"}'
 ```
 
 
@@ -52,15 +60,25 @@ docker run -ti --rm \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
-export ACCOUNT_ID='john-doe.usr.example.net'
-export MQTT_CLIENT_ID="v1.mqtt3/agents/${AGENT_ID}"
-export ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA'
+## Subscribing to messages
+ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
+ACCOUNT_ID='app.svc.example.org' \
+    && mosquitto_sub -h $(docker-machine ip) \
+        -i "v1.mqtt3/service-agents/test.${ACCOUNT_ID}" \
+        -P "${ACCESS_TOKEN}" \
+        -u 'ignore' \
+        -t "agents/+/api/v1/out/${ACCOUNT_ID}"
 
-## Subscribing for incoming messages from the APP
-mosquitto_sub -h $(docker-machine ip) -i "v1.mqtt3/agents/s.${ACCOUNT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t "agents/s.${ACCOUNT_ID}/api/v1/in/APP"
-
-## Publishing a message to the APP
-mosquitto_pub -h $(docker-machine ip) -i "v1.mqtt3/agents/p.${ACCOUNT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t "agents/p.${ACCOUNT_ID}/api/v1/out/APP" -m '{"payload": "bar"}'
+## Publishing a message
+ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA' \
+ACCOUNT_ID='john-doe.usr.example.net' \
+APP='app.svc.example.org' \
+    && mosquitto_pub -h $(docker-machine ip) \
+        -i "v1.mqtt3/agents/test.${ACCOUNT_ID}" \
+        -P "${ACCESS_TOKEN}" \
+        -u 'ignore' \
+        -t "agents/test.${ACCOUNT_ID}/api/v1/out/${APP}" \
+        -m '{"payload": "bar"}'
 ```
 
 
