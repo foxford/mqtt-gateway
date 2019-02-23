@@ -4,13 +4,13 @@ audience = "svc.example.org"
 
 [authn."iam.svc.example.net"]
 audience = ["usr.example.net"]
-algorithm = "HS256"
-key = "/app/data/keys/iam.key.binary.sample"
+algorithm = "ES256"
+key = "/app/data/keys/iam.public_key"
 
 [authn."svc.example.org"]
 audience = ["svc.example.org"]
-algorithm = "HS256"
-key = "/app/data/keys/iam.key.binary.sample"
+algorithm = "ES256"
+key = "/app/data/keys/svc.public_key"
 
 [authz."svc.example.org"]
 type = "trusted"

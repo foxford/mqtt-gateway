@@ -9,7 +9,7 @@ if [[ "${LOCAL}" ]]; then
     ## Initializing deploy for a local machine
 
     NAMESPACE='testing'
-    DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
+    DOCKER_IMAGE_TAG='testing'
 
 else
 
@@ -48,16 +48,19 @@ else
 
 fi
 
-function KUBECTL_APPLY() {
+function FILE_FROM_GITHUB() {
     local URI="${1}"; if [[ ! "${URI}" ]]; then echo "${FUNCNAME[0]}:URI isn't specified" 1>&2; exit 1; fi
+    mkdir -p "_k8s"
     curl -fsSL \
         -H "authorization: token ${GITHUB_TOKEN}" \
         -H 'accept: application/vnd.github.v3.raw' \
-        "${URI}" \
-        | kubectl apply -f -
+        -o "_k8s/$(basename $URI)" \
+        "${URI}"
 }
 
-KUBECTL_APPLY "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-config.yaml"
-KUBECTL_APPLY "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml"
+FILE_FROM_GITHUB "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway.yaml"
+FILE_FROM_GITHUB "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-config.yaml"
+FILE_FROM_GITHUB "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-headless.yaml"
+FILE_FROM_GITHUB "https://api.github.com/repos/netology-group/environment/contents/cluster/k8s/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml"
 
 IMAGE_TAG="${DOCKER_IMAGE_TAG}" skaffold run -n "${NAMESPACE}"

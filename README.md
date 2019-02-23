@@ -28,15 +28,14 @@ execute following shell commands within different terminal tabs:
 ## To build container locally
 docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
-cp App.toml.sample App.toml 
 docker run -ti --rm \
-    -v "$(pwd)/App.toml:/app/App.toml" \
+    -v "$(pwd)/App.toml.sample:/app/App.toml" \
     -e APP_CONFIG='/app/App.toml' \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 ## Publishing a message to the broker
 MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
-    mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
+    && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
 ```
 
 
@@ -46,15 +45,22 @@ MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
 ```bash
 ## Authnentication should be enabled in 'App.toml'
 docker run -ti --rm \
-    -v "$(pwd)/App.toml:/app/App.toml" \
-    -v "$(pwd)/data/keys/iam.key.binary.sample:/app/data/keys/iam.key.binary.sample" \
+    -v "$(pwd)/App.toml.sample:/app/App.toml" \
+    -v "$(pwd)/data/keys/iam.public_key.pem.sample:/app/data/keys/iam.public_key.pem.sample" \
     -e APP_CONFIG='/app/App.toml' \
     -p 1883:1883 \
     sandbox/mqtt-gateway
-## Publishing a message to the broker
-ACCESS_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJleGFtcGxlLm5ldCIsImlzcyI6ImlhbS5zdmMuZXhhbXBsZS5uZXQiLCJzdWIiOiJqb2huLWRvZSJ9.aTUJeUW6weaxycqfafqK3JP9AP6_PGQfC0ANA045V88' \
-MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
-    mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t 'foo' -m '{"payload": "bar"}'
+
+
+export ACCOUNT_ID='john-doe.example.net'
+export MQTT_CLIENT_ID="v1.mqtt3/agents/${AGENT_ID}"
+export ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA'
+
+## Subscribing for incoming messages from the APP
+mosquitto_sub -h $(docker-machine ip) -i "v1.mqtt3/agents/s.${ACCOUNT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t "agents/s.${ACCOUNT_ID}/api/v1/in/APP"
+
+## Publishing a message to the APP
+mosquitto_pub -h $(docker-machine ip) -i "v1.mqtt3/agents/p.${ACCOUNT_ID}" -P "${ACCESS_TOKEN}" -u 'ignore' -t "agents/p.${ACCOUNT_ID}/api/v1/out/APP" -m '{"payload": "bar"}'
 ```
 
 

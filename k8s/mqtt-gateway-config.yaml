@@ -3,6 +3,25 @@ kind: ConfigMap
 metadata:
   name: mqtt-gateway-config
 data:
+  App.toml: |
+    [id]
+    label = "mqtt-gateway"
+    audience = "svc.example.org"
+
+    [authn."iam.svc.example.net"]
+    audience = ["usr.example.net"]
+    algorithm = "ES256"
+    key = "/app/data/keys/iam.public_key"
+
+    [authn."svc.example.org"]
+    audience = ["svc.example.org"]
+    algorithm = "ES256"
+    key = "/app/data/keys/svc.public_key"
+
+    [authz."svc.example.org"]
+    type = "trusted"
+    trusted = ["svc.example.org"]
+
   vernemq.conf: |
     ## Allow anonymous users to connect, default is 'off'. !!NOTE!!
     ## Enabling this completely disables authentication of the clients and

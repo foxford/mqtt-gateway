@@ -37,18 +37,15 @@ spec:
             - name: config
               mountPath: /app/App.toml
               subPath: App.toml
-            - name: foxford
-              mountPath: /app/data/keys/iam.foxford.public_key.pem
-              subPath: iam.foxford.public_key
-            - name: netology
-              mountPath: /app/data/keys/iam.netology.public_key.pem
-              subPath: iam.netology.public_key
-            - name: foxford-prev
-              mountPath: /app/data/keys/foxford.iam.key.binary
-              subPath: iam.key
-            - name: netology-prev
-              mountPath: /app/data/keys/netology.iam.key.binary
-              subPath: iam.key
+            - name: iam
+              mountPath: /app/data/keys/iam.public_key.pem
+              subPath: iam.public_key
+            - name: svc
+              mountPath: /app/data/keys/svc.public_key.pem
+              subPath: svc.public_key
+            - name: svc
+              mountPath: /app/data/keys/svc.private_key.pem
+              subPath: svc.private_key
             - name: tls
               mountPath: /tls
           resources:
@@ -62,18 +59,12 @@ spec:
         - name: config
           configMap:
             name: mqtt-gateway-config
-        - name: foxford
+        - name: iam
           secret:
-            secretName: iam.foxford-2019-02-04-pem-credentials
-        - name: netology
+            secretName: iam-pem-credentials
+        - name: svc
           secret:
-            secretName: iam.netology-2019-02-04-pem-credentials
-        - name: foxford-prev
-          secret:
-            secretName: foxford-20180915-credentials
-        - name: netology-prev
-          secret:
-            secretName: netology-20181224-credentials
+            secretName: svc-pem-credentials
         - name: tls
           secret:
             secretName: tls-certificates
