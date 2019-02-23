@@ -29,12 +29,12 @@ execute following shell commands within different terminal tabs:
 docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
 docker run -ti --rm \
-    -v "$(pwd)/App.toml.sample:/app/App.toml" \
-    -e APP_CONFIG='/app/App.toml' \
+    -e APP_AUTHN_ENABLED=0 \
+    -e APP_AUTHZ_ENABLED=0 \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 ## Publishing a message to the broker
-MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
+MQTT_CLIENT_ID='v1.mqtt3/agents/test.usr.john-doe.example.net' \
     && mosquitto_pub -h $(docker-machine ip) -i "${MQTT_CLIENT_ID}" -t 'foo' -m '{"payload": "bar"}'
 ```
 
@@ -47,12 +47,12 @@ MQTT_CLIENT_ID='v1.mqtt3/agents/test.john-doe.example.net' \
 docker run -ti --rm \
     -v "$(pwd)/App.toml.sample:/app/App.toml" \
     -v "$(pwd)/data/keys/iam.public_key.pem.sample:/app/data/keys/iam.public_key.pem.sample" \
+    -v "$(pwd)/data/keys/svc.public_key.pem.sample:/app/data/keys/svc.public_key.pem.sample" \
     -e APP_CONFIG='/app/App.toml' \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
-
-export ACCOUNT_ID='john-doe.example.net'
+export ACCOUNT_ID='john-doe.usr.example.net'
 export MQTT_CLIENT_ID="v1.mqtt3/agents/${AGENT_ID}"
 export ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA'
 

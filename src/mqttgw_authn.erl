@@ -2,6 +2,7 @@
 
 %% API
 -export([
+    read_config/0,
     read_config/1,
     authenticate/2,
     format_account_id/1
@@ -17,25 +18,27 @@
 %% API
 %% =============================================================================
 
--spec read_config(toml:config()) -> disabled | {enabled, config()}.
-read_config(TomlConfig) ->
-    case toml:get_value(["features"], "authn", TomlConfig) of
-        {boolean, false} -> disabled;
+-spec read_config() -> disabled | {enabled, config()}.
+read_config() ->
+    case os:getenv("APP_AUTHN_ENABLED", "1") of
+        "0" -> disabled;
         _ ->
-            Config =
-                toml:folds(
-                    ["authn"],
-                    fun(_Config, Section, Acc) ->
-                        Iss = parse_issuer(Section),
-                        Aud = parse_audience(Section, TomlConfig),
-                        {Alg, Key} = parse_key(Section, TomlConfig),
-                        Acc#{Iss => #{audience => Aud, algorithm => Alg, key => Key}}
-                    end,
-                    #{},
-                    TomlConfig),
-
+            Config = read_config(mqttgw_config:read_config()),
             {enabled, Config}
     end.
+
+-spec read_config(toml:config()) -> config().
+read_config(TomlConfig) ->
+    toml:folds(
+        ["authn"],
+        fun(_Config, Section, Acc) ->
+            Iss = parse_issuer(Section),
+            Aud = parse_audience(Section, TomlConfig),
+            {Alg, Key} = parse_key(Section, TomlConfig),
+            Acc#{Iss => #{audience => Aud, algorithm => Alg, key => Key}}
+        end,
+        #{},
+        TomlConfig).
 
 -spec authenticate(binary(), config()) -> account_id().
 authenticate(Token, Config) ->

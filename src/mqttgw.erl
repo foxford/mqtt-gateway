@@ -15,8 +15,7 @@
     handle_connect/2,
     handle_publish/3,
     handle_deliver/3,
-    handle_subscribe/2,
-    read_config_file/1
+    handle_subscribe/2
 ]).
 
 %% Plugin callbacks
@@ -333,26 +332,14 @@ verify_subscribe_topic(Topic, _AccountId, AgentId, Mode)
     -> error({nomatch_subscribe_topic, Topic, AgentId, Mode}).
 
 %% =============================================================================
-%% API: Config
-%% =============================================================================
-
--spec read_config_file(list()) -> toml:config().
-read_config_file(Path) ->
-    case toml:read_file(Path) of
-        {ok, Config} -> Config;
-        {error, Reason} -> exit({invalid_config_path, Reason})
-    end.
-
-%% =============================================================================
 %% Plugin callbacks
 %% =============================================================================
 
 -spec start() -> ok.
 start() ->
     {ok, _} = application:ensure_all_started(?APP),
-    TomlConfig = read_config("APP_CONFIG"),
-    mqttgw_state:put(authn, mqttgw_authn:read_config(TomlConfig)),
-    mqttgw_state:put(authz, mqttgw_authz:read_config(TomlConfig)),
+    mqttgw_state:put(authn, mqttgw_authn:read_config()),
+    mqttgw_state:put(authz, mqttgw_authz:read_config()),
     ok.
 
 -spec stop() -> ok.
@@ -390,13 +377,6 @@ auth_on_subscribe(
 %% =============================================================================
 %% Internal functions
 %% =============================================================================
-
--spec read_config(list()) -> toml:config().
-read_config(Name) ->
-    case os:getenv(Name) of
-        false -> exit(missing_config_path);
-        Path  -> read_config_file(Path)
-    end.
 
 -spec agent_id(client_id()) -> binary().
 agent_id(ClientId) ->

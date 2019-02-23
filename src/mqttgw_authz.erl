@@ -2,6 +2,7 @@
 
 %% API
 -export([
+    read_config/0,
     read_config/1,
     authorize/3
 ]).
@@ -15,26 +16,29 @@
 %% API
 %% =============================================================================
 
--spec read_config(toml:config()) -> disabled | {enabled, config()}.
-read_config(TomlConfig) ->
-    case toml:get_value(["features"], "authz", TomlConfig) of
-        {boolean, false} -> disabled;
+-spec read_config() -> disabled | {enabled, mqttgw_authn:account_id(), config()}.
+read_config() ->
+    case os:getenv("APP_AUTHZ_ENABLED", "1") of
+        "0" -> disabled;
         _ ->
-            Config =
-                toml:folds(
-                    ["authz"],
-                    fun(_Config, Section, Acc) ->
-                        Aud = parse_audience(Section),
-                        Type = parse_type(Section, TomlConfig),
-                        Trusted = parse_trusted(Section, TomlConfig),
-                        Acc#{Aud => #{type => Type, trusted => Trusted}}
-                    end,
-                    #{},
-                    TomlConfig),
-
+            TomlConfig = mqttgw_config:read_config(),
             Id = mqttgw_id:read_config(TomlConfig),
+            Config = read_config(TomlConfig),
             {enabled, Id, Config}
     end.
+
+-spec read_config(toml:config()) ->config().
+read_config(TomlConfig) ->
+    toml:folds(
+        ["authz"],
+        fun(_Config, Section, Acc) ->
+            Aud = parse_audience(Section),
+            Type = parse_type(Section, TomlConfig),
+            Trusted = parse_trusted(Section, TomlConfig),
+            Acc#{Aud => #{type => Type, trusted => Trusted}}
+        end,
+        #{},
+        TomlConfig).
 
 -spec authorize(binary(), mqttgw_authn:account_id(), config()) -> ok.
 authorize(Audience, AccountId, Config) ->
