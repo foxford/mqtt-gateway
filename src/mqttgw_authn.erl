@@ -3,7 +3,8 @@
 %% API
 -export([
     read_config/1,
-    authenticate/2
+    authenticate/2,
+    format_account_id/1
 ]).
 
 %% Types
@@ -56,6 +57,13 @@ authenticate(Token, Config) ->
 
     #{label => Sub,
       audience => Aud}.
+
+-spec format_account_id(account_id()) -> binary().
+format_account_id(AccountId) ->
+    #{label := Label,
+      audience := Audience} = AccountId,
+
+    <<Label/binary, $., Audience/binary>>.
 
 %% =============================================================================
 %% Internal functions

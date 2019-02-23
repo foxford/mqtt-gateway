@@ -15,7 +15,8 @@
     handle_connect/2,
     handle_publish/3,
     handle_deliver/3,
-    handle_subscribe/2
+    handle_subscribe/2,
+    read_config_file/1
 ]).
 
 %% Plugin callbacks
@@ -99,7 +100,8 @@ handle_connect_authn(ClientId, Password, Config) ->
             error_logger:warning_msg(
                 "Error on connect: account_id = '~s' in the password is "
                 " different from the account_id = '~s' in the client_id",
-                [AccountId, DirtyAccountId]),
+                [ mqttgw_authn:format_account_id(AccountId),
+                  mqttgw_authn:format_account_id(DirtyAccountId) ]),
             {error, not_authorized}
     catch
         T:R ->
@@ -230,7 +232,7 @@ verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId,
 %% Unicast:
 %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
-verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], _AccountId, Me, Mode)
+verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], Me, _AgentId, Mode)
     when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Forbidding publishing to any other topics
@@ -331,6 +333,17 @@ verify_subscribe_topic(Topic, _AccountId, AgentId, Mode)
     -> error({nomatch_subscribe_topic, Topic, AgentId, Mode}).
 
 %% =============================================================================
+%% API: Config
+%% =============================================================================
+
+-spec read_config_file(list()) -> toml:config().
+read_config_file(Path) ->
+    case toml:read_file(Path) of
+        {ok, Config} -> Config;
+        {error, Reason} -> exit({invalid_config_path, Reason})
+    end.
+
+%% =============================================================================
 %% Plugin callbacks
 %% =============================================================================
 
@@ -383,13 +396,6 @@ read_config(Name) ->
     case os:getenv(Name) of
         false -> exit(missing_config_path);
         Path  -> read_config_file(Path)
-    end.
-
--spec read_config_file(list()) -> toml:config().
-read_config_file(Path) ->
-    case toml:read_file(Path) of
-        {ok, Config} -> Config;
-        {error, Reason} -> exit({invalid_config_path, Reason})
     end.
 
 -spec agent_id(client_id()) -> binary().
@@ -634,6 +640,61 @@ prop_onconnect_invalid_credentials() ->
         {error, invalid_credentials} =:=
             auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession)).
 
+authz_onconnect_test_() ->
+    SvcAud = MeAud = <<"svc.example.org">>,
+    UsrAud = <<"usr.example.net">>,
+
+    #{password := SvcPassword,
+      config := SvcAuthnConfig} =
+        make_sample_password(<<"bar">>, SvcAud, <<"svc.example.org">>),
+    #{password := UsrPassword,
+      config := UsrAuthnConfig} =
+        make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
+    #{me := Me,
+      config := AuthzConfig} = make_sample_me(MeAud, [SvcAud]),
+
+    Test = [
+        { "usr: allowed",
+          [user], UsrAud, UsrPassword, ok },
+        { "usr: forbidden",
+          [service_payload_only, service, bridge], UsrAud, UsrPassword, {error, not_authorized} },
+        { "svc: allowed",
+          [user, service_payload_only, service, bridge], SvcAud, SvcPassword, ok }
+    ],
+
+    mqttgw_state:new(),
+    %% 1 - authn: enabled, authz: disabled
+    %% Anyone can connect in any mode when authz is dissabled
+    mqttgw_state:put(authn, {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)}),
+    mqttgw_state:put(authz, disabled),
+    [begin
+        [begin
+            ClientId =
+                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+            {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password))}
+        end || Mode <- Modes]
+    end || {Desc, Modes, Aud, Password, _Result} <- Test],
+    %% 2 - authn: enabled, authz: enabled
+    %% User accounts can connect only in 'user' mode
+    %% Service accounts can connect in any mode
+    mqttgw_state:put(authz, {enabled, Me, AuthzConfig}),
+    [begin
+        [begin
+            ClientId =
+                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
+        end || Mode <- Modes]
+    end || {Desc, Modes, Aud, Password, Result} <- Test],
+    %% 3 - authn: disabled, authz: enabled
+    mqttgw_state:put(authn, disabled),
+    [begin
+        [begin
+            ClientId =
+                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
+        end || Mode <- Modes]
+    end || {Desc, Modes, Aud, Password, Result} <- Test].
+
 prop_onpublish() ->
     ?FORALL(
         {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
@@ -671,22 +732,58 @@ prop_onpublish() ->
             OutputMessage =:= ExpectedMessage
         end).
 
-bridge_missing_properties_test_() ->
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
+bridge_missing_properties_onpublish_test_() ->
+    ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>, bridge),
     Test =
         [{"missing properties", #{}},
          {"missing agent_label", #{<<"account_label">> => <<>>, <<"audience">> => <<>>}},
          {"missing account_label", #{<<"agent_label">> => <<>>, <<"audience">> => <<>>}},
          {"missing audience", #{<<"agent_label">> => <<>>, <<"account_label">> => <<>>}}],
 
-    ClientId = <<"v1.mqtt3/bridge-agents/x.a.example.org">>,
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
     [begin
         Message = jsx:encode(#{payload => <<>>, properties => Properties}),
-        Error = auth_on_publish(<<>>, {[], ClientId}, 0, [<<>>], Message, false),
-        ExpectedError = {error, bad_message},
-        {Desc, ?_assertEqual(ExpectedError, Error)}
+        {Desc, ?_assertEqual({error, bad_message}, handle_publish([], Message, ClientId))}
      end || {Desc, Properties} <- Test].
+
+authz_onpublish_test_() ->
+    %% Broadcast:
+    %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
+    %% Multicast:
+    %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
+    %% Unicast:
+    %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
+    %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
+    Broadcast = fun(ClientId) ->
+        [<<"apps">>, account_id(ClientId), <<"api">>, <<"v1">>, <<>>]
+    end,
+    Multicast = fun(ClientId) ->
+        [<<"agents">>, agent_id(ClientId), <<"api">>, <<"v1">>, <<"out">>, <<>>]
+    end,
+    Unicast = fun(ClientId) ->
+        [<<"agents">>, <<>>, <<"api">>, <<"v1">>, <<"in">>, account_id(ClientId)]
+    end,
+
+    Test = [
+        {"usr: broadcast", Broadcast, [user], error},
+        {"usr: multicast", Multicast, [user], ok},
+        {"usr: unicast", Unicast, [user], error},
+        {"svc: broadcast", Broadcast, [service_payload_only, service, bridge], ok},
+        {"svc: multicast", Multicast, [service_payload_only, service, bridge], ok},
+        {"svc: unicast", Unicast, [service_payload_only, service, bridge], ok}
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, {enabled, ignore, ignore}),
+    [begin
+        [begin
+            Message = make_sample_message(Mode),
+            ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
+            {Result, _} = handle_publish(TopicFn(ClientId), Message, ClientId),
+            {Desc, ?_assertEqual(Expect, Result)}
+        end || Mode <- Modes]
+    end || {Desc, TopicFn, Modes, Expect} <- Test].
 
 prop_ondeliver() ->
     ?FORALL(
@@ -725,5 +822,111 @@ prop_onsubscribe() ->
         {Username, SubscriberId, Topics},
         {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},
         ok =:= auth_on_subscribe(Username, SubscriberId, Topics)).
+
+authz_onsubscribe_test_() ->
+    %% Broadcast:
+    %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
+    %% Multicast:
+    %% <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
+    %% Unicast:
+    %% <- request(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+    %% <- request(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+    %% <- response(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
+    %% <- response(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
+    Broadcast = fun(_ClientId) ->
+        [<<"apps">>, <<>>, <<"api">>, <<"v1">>, <<>>]
+    end,
+    Multicast = fun(ClientId) ->
+        [<<"agents">>, <<$+>>, <<"api">>, <<"v1">>, <<"out">>, account_id(ClientId)]
+    end,
+    Unicast = fun(ClientId) ->
+        [<<"agents">>, agent_id(ClientId), <<"api">>, <<"v1">>, <<"in">>, <<$+>>]
+    end,
+
+    Test = [
+        {"usr: broadcast", Broadcast, [user], ok}, %% <- TODO: should be forbidden
+        {"usr: multicast", Multicast, [user], {error, not_authorized}},
+        {"usr: unicast", Unicast, [user], ok},
+        {"svc: broadcast", Broadcast, [service_payload_only, service, bridge], ok},
+        {"svc: multicast", Multicast, [service_payload_only, service, bridge], ok},
+        {"svc: unicast", Unicast, [service_payload_only, service, bridge], ok}
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, {enabled, ignore, ignore}),
+    [begin
+        [begin
+            ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
+            {Desc, ?_assertEqual(Result, handle_subscribe([{TopicFn(ClientId), 0}], ClientId))}
+        end || Mode <- Modes]
+    end || {Desc, TopicFn, Modes, Result} <- Test].
+
+make_sample_password(AccountLabel, Audience, Issuer) ->
+    Alg = <<"HS256">>,
+    Key = jose_jwa:generate_key(Alg),
+    Config =
+        #{Issuer =>
+          #{algorithm => Alg,
+            audience => gb_sets:insert(Audience, gb_sets:new()),
+            key => Key}},
+
+    Token =
+        jose_jws_compact:encode(
+          #{iss => Issuer,
+            aud => Audience,
+            sub => AccountLabel},
+          Alg,
+          Key),
+
+    #{password => Token,
+      config => Config}.
+
+make_sample_me(MeAud, Trusted) ->
+    Me = #{label => <<"mqtt-gateway">>, audience => MeAud},
+    Config =
+        #{MeAud =>
+          #{type => trusted,
+            trusted => gb_sets:from_list(Trusted)}},
+
+    #{me => Me,
+      config => Config}.
+
+make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode) ->
+    #client_id{
+        mode = Mode,
+        agent_label = AgentLabel,
+        account_label = AccountLabel,
+        audience = Audience}.
+
+make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Version) ->
+    AgentId = <<AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>,
+    ModeLabel =
+        case Mode of
+            user -> <<Version/binary, "/agents">>;
+            service_payload_only -> <<Version/binary, ".payload-only/service-agents">>;
+            service -> <<Version/binary, "/service-agents">>;
+            bridge -> <<Version/binary, "/bridge-agents">>
+        end,
+
+    <<ModeLabel/binary, $/, AgentId/binary>>.
+
+make_sample_message(Mode) ->
+    case Mode of
+        user ->
+            jsx:encode(#{payload => <<"bar">>});
+        service_payload_only ->
+            <<"bar">>;
+        service ->
+            jsx:encode(#{payload => <<"bar">>});
+        bridge ->
+            jsx:encode(
+                #{payload => <<"bar">>,
+                  properties =>
+                    #{<<"agent_label">> => <<"test-1">>,
+                      <<"account_label">> => <<"john-doe">>,
+                      <<"audience">> => <<"example.org">>}});
+        _ ->
+            error({bad_mode, Mode})
+    end.
 
 -endif.
