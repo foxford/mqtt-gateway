@@ -19,11 +19,14 @@
 -spec read_config() -> disabled | {enabled, mqttgw_authn:account_id(), config()}.
 read_config() ->
     case os:getenv("APP_AUTHZ_ENABLED", "1") of
-        "0" -> disabled;
+        "0" ->
+            error_logger:info_msg("[CONFIG] Authz is disabled~n"),
+            disabled;
         _ ->
             TomlConfig = mqttgw_config:read_config(),
             Id = mqttgw_id:read_config(TomlConfig),
             Config = read_config(TomlConfig),
+            error_logger:info_msg("[CONFIG] Authz is loaded: ~p, ~p~n", [Id, Config]),
             {enabled, Id, Config}
     end.
 

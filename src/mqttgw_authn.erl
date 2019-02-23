@@ -21,9 +21,12 @@
 -spec read_config() -> disabled | {enabled, config()}.
 read_config() ->
     case os:getenv("APP_AUTHN_ENABLED", "1") of
-        "0" -> disabled;
+        "0" ->
+            error_logger:info_msg("[CONFIG] Authn is disabled~n"),
+            disabled;
         _ ->
             Config = read_config(mqttgw_config:read_config()),
+            error_logger:info_msg("[CONFIG] Authn is loaded: ~p~n", [Config]),
             {enabled, Config}
     end.
 
