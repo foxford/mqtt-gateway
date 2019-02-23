@@ -14,7 +14,8 @@ build:
 deploy:
   kubectl:
     manifests:
-    - _k8s/mqtt-gateway.yaml
-    - _k8s/mqtt-gateway-config.yaml
-    - _k8s/mqtt-gateway-headless.yaml
-    - _k8s/mqtt-gateway-loadbalancer.yaml
+    - deploy/k8s/mqtt-gateway.yaml
+    - deploy/k8s/mqtt-gateway-config.yaml
+    - deploy/k8s/mqtt-gateway-environment.yaml
+    - deploy/k8s/mqtt-gateway-headless.yaml
+    - deploy/k8s/mqtt-gateway-loadbalancer.yaml

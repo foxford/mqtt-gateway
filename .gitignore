@@ -23,4 +23,4 @@ erl_crash.dump
 *.plt
 *.d
 App.toml
-_k8s
+deploy

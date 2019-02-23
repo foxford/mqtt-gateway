@@ -9,7 +9,6 @@ services: docker
 git:
   depth: 1
 jobs:
-  fast_finish: true
   include:
     - stage: check
       name: Tests
@@ -18,10 +17,10 @@ jobs:
     - stage: check
       name: Docs
       install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers 0.2.3 --force
-      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && PROJECT='mqtt-gateway' deploy/docs.sh
+      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/docs.sh
     - stage: deploy
       name: Kubernetes
-      script: deploy/run.sh
+      script: ./deploy.init.sh && ./deploy/run.sh
 stages:
   - name: check
   - name: deploy
