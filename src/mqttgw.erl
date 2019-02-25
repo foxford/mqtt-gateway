@@ -1,9 +1,13 @@
 -module(mqttgw).
 
 -behaviour(auth_on_register_hook).
+-behaviour(auth_on_register_m5_hook).
 -behaviour(auth_on_publish_hook).
+-behaviour(auth_on_publish_m5_hook).
 -behaviour(on_deliver_hook).
+-behaviour(on_deliver_m5_hook).
 -behaviour(auth_on_subscribe_hook).
+-behaviour(auth_on_subscribe_m5_hook).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -23,9 +27,13 @@
     start/0,
     stop/0,
     auth_on_register/5,
+    auth_on_register_m5/6,
     auth_on_publish/6,
+    auth_on_publish_m5/7,
     on_deliver/4,
-    auth_on_subscribe/3
+    on_deliver_m5/5,
+    auth_on_subscribe/3,
+    auth_on_subscribe_m5/4
 ]).
 
 %% Definitions
@@ -33,8 +41,10 @@
 
 %% Types
 -type connection_mode() :: default | service_payload_only | service | bridge.
+-type protocol() :: mqtt3 | mqtt5.
 
 -record(client_id, {
+    prot          :: protocol(),
     mode          :: connection_mode(),
     agent_label   :: binary(),
     account_label :: binary(),
@@ -52,11 +62,13 @@
 }).
 -type envelope() :: #envelope{}.
 
+-type error() :: #{reason_code := atom()}.
+
 %% =============================================================================
 %% API: Connect
 %% =============================================================================
 
--spec handle_connect(binary(), binary()) -> ok | {error, any()}.
+-spec handle_connect(binary(), binary()) -> ok | {error, error()}.
 handle_connect(ClientId, Password) ->
     try validate_client_id(parse_client_id(ClientId)) of
         Val ->
@@ -67,10 +79,10 @@ handle_connect(ClientId, Password) ->
                 "Error on connect: an invalid client_id = ~p, "
                 "exception_type = ~p, exception_reason = ~p",
                 [ClientId, T, R]),
-            {error, client_identifier_not_valid}
+            {error, #{reason_code => client_identifier_not_valid}}
     end.
 
--spec handle_connect_authn_config(client_id(), binary()) -> ok | {error, any()}.
+-spec handle_connect_authn_config(client_id(), binary()) -> ok | {error, error()}.
 handle_connect_authn_config(ClientId, Password) ->
     case mqttgw_state:find(authn) of
         {ok, disabled} ->
@@ -84,10 +96,10 @@ handle_connect_authn_config(ClientId, Password) ->
             error_logger:warning_msg(
                 "Error on connect: authn config isn't found for the agent = '~s'",
                 [agent_id(ClientId)]),
-            {error, impl_specific_error}
+            {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_connect_authn(client_id(), binary(), mqttgw_authn:config()) -> ok | {error, any()}.
+-spec handle_connect_authn(client_id(), binary(), mqttgw_authn:config()) -> ok | {error, error()}.
 handle_connect_authn(ClientId, Password, Config) ->
     DirtyAccountId =
         #{label => ClientId#client_id.account_label,
@@ -101,17 +113,17 @@ handle_connect_authn(ClientId, Password, Config) ->
                 " different from the account_id = '~s' in the client_id",
                 [ mqttgw_authn:format_account_id(AccountId),
                   mqttgw_authn:format_account_id(DirtyAccountId) ]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     catch
         T:R ->
             error_logger:warning_msg(
                 "Error on connect: an invalid password of the agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [agent_id(ClientId), T, R]),
-            {error, bad_username_or_password}
+            {error, #{reason_code => bad_username_or_password}}
     end.
 
--spec handle_connect_authz_config(client_id(), mqttgw_authn:account_id()) -> ok | {error, any()}.
+-spec handle_connect_authz_config(client_id(), mqttgw_authn:account_id()) -> ok | {error, error()}.
 handle_connect_authz_config(ClientId, AccountId) ->
     #client_id{mode=Mode} = ClientId,
 
@@ -124,13 +136,13 @@ handle_connect_authz_config(ClientId, AccountId) ->
             error_logger:warning_msg(
                 "Error on publish: authz config isn't found for the agent = '~s'",
                 [agent_id(ClientId)]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     end.
 
 -spec handle_connect_authz(
     connection_mode(), client_id(), mqttgw_authn:account_id(),
     mqttgw_id:id(), mqttgw_authz:config())
-    -> ok | {error, any()}.
+    -> ok | {error, error()}.
 handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
     handle_connect_success(ClientId);
 handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
@@ -145,27 +157,27 @@ handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
                 "Error on connect: connecting in mode = '~s' isn't allowed for the agent = ~p, "
                 "exception_type = ~p, exception_reason = ~p",
                 [Mode, agent_id(ClientId), T, R]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_connect_success(client_id()) -> ok | {error, any()}.
+-spec handle_connect_success(client_id()) -> ok | {error, error()}.
 handle_connect_success(ClientId) ->
-    #client_id{mode=Mode} = ClientId,
+    #client_id{prot=Prot, mode=Mode} = ClientId,
 
     error_logger:info_msg(
-        "Agent = '~s' connected: mode = '~s'",
-        [agent_id(ClientId), Mode]),
+        "Agent = '~s' connected: protocol = '~s', mode = '~s'",
+        [agent_id(ClientId), Prot, Mode]),
     ok.
 
 %% =============================================================================
 %% API: Publish
 %% =============================================================================
 
--spec handle_publish(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+-spec handle_publish(topic(), binary(), client_id()) -> {ok, map()} | {error, error()}.
 handle_publish(Topic, Payload, ClientId) ->
     handle_publish_authz_config(Topic, Payload, ClientId).
 
--spec handle_publish_authz_config(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+-spec handle_publish_authz_config(topic(), binary(), client_id()) -> {ok, map()} | {error, error()}.
 handle_publish_authz_config(Topic, Payload, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
@@ -176,10 +188,10 @@ handle_publish_authz_config(Topic, Payload, ClientId) ->
             error_logger:warning_msg(
                 "Error on publish: authz config isn't found for the agent = '~s'",
                 [agent_id(ClientId)]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_authz(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+-spec handle_publish_authz(topic(), binary(), client_id()) -> {ok, map()} | {error, error()}.
 handle_publish_authz(Topic, Payload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
@@ -193,10 +205,10 @@ handle_publish_authz(Topic, Payload, ClientId) ->
                 " for the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [Topic, agent_id(ClientId), Mode, T, R]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_envelope(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+-spec handle_publish_envelope(topic(), binary(), client_id()) -> {ok, map()} | {error, error()}.
 handle_publish_envelope(_Topic, Payload, ClientId) ->
     #client_id{
         mode=Mode,
@@ -208,14 +220,14 @@ handle_publish_envelope(_Topic, Payload, ClientId) ->
             Mode, AgentLabel, AccountLabel, Audience,
             validate_envelope(parse_envelope(Mode, Payload))) of
         UpdatedPayload ->
-            {ok, [{payload, UpdatedPayload}]}
+            {ok, #{payload => UpdatedPayload}}
     catch
         T:R ->
             error_logger:error_msg(
                 "Error on publish: an invalid message = ~p from the agent = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, agent_id(ClientId), T, R]),
-            {error, bad_message}
+            {error, #{reason_code => impl_specific_error}}
     end.
 
 -spec verify_publish_topic(topic(), binary(), binary(), connection_mode()) -> ok.
@@ -242,31 +254,31 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% API: Deliver
 %% =============================================================================
 
--spec handle_deliver(topic(), binary(), client_id()) -> {ok, list()} | {error, any()}.
+-spec handle_deliver(topic(), binary(), client_id()) -> {ok, map()} | {error, error()}.
 handle_deliver(_Topic, Payload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try deliver_envelope(Mode, Payload) of
         UpdatedPayload ->
-            {ok, [{payload, UpdatedPayload}]}
+            {ok, #{payload => UpdatedPayload}}
     catch
         T:R ->
             error_logger:error_msg(
                 "Error on deliver: an invalid message = ~p from the agent = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, agent_id(ClientId), T, R]),
-            {error, bad_message}
+            {error, #{reason_code => impl_specific_error}}
     end.
 
 %% =============================================================================
 %% API: Subscribe
 %% =============================================================================
 
--spec handle_subscribe([subscription()], client_id()) ->ok | {error, any()}.
+-spec handle_subscribe([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe(Subscriptions, ClientId) ->
     handle_subscribe_authz_config(Subscriptions, ClientId).
 
--spec handle_subscribe_authz_config([subscription()], client_id()) ->ok | {error, any()}.
+-spec handle_subscribe_authz_config([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe_authz_config(Subscriptions, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
@@ -280,7 +292,7 @@ handle_subscribe_authz_config(Subscriptions, ClientId) ->
             {error, not_authorized}
     end.
 
--spec handle_subscribe_authz([subscription()], client_id()) ->ok | {error, any()}.
+-spec handle_subscribe_authz([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe_authz(Subscriptions, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
@@ -295,10 +307,10 @@ handle_subscribe_authz(Subscriptions, ClientId) ->
                 "for the agent = '~s' using mode = '~s' "
                 "exception_type = ~p, exception_reason = ~p",
                 [Subscriptions, agent_id(ClientId), Mode, T, R]),
-            {error, not_authorized}
+            {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_subscribe_success([subscription()], client_id()) ->ok | {error, any()}.
+-spec handle_subscribe_success([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe_success(Topics, ClientId) ->
     #client_id{mode=Mode} =ClientId,
 
@@ -350,15 +362,31 @@ auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
     Password, _CleanSession) ->
     case handle_connect(ClientId, Password) of
-        {error, _} ->
-            {error, invalid_credentials};
-        Ok ->
-            Ok
+        ok ->
+            ok;
+        {error, #{reason_code := Reason}} ->
+            {error, Reason}
     end.
+
+auth_on_register_m5(
+    _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
+    Password, _CleanSession, _Properties) ->
+    handle_connect(ClientId, Password).
 
 auth_on_publish(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     _QoS, Topic, Payload, _IsRetain) ->
+
+    case handle_publish(Topic, Payload, parse_client_id(ClientId)) of
+        {ok, M} ->
+            {ok, maps:to_list(M)};
+        {error, #{reason_code := Reason}} ->
+            {error, Reason}
+    end.
+
+auth_on_publish_m5(
+    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _QoS, Topic, Payload, _IsRetain, _Properties) ->
 
     handle_publish(Topic, Payload, parse_client_id(ClientId)).
 
@@ -366,11 +394,33 @@ on_deliver(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Topic, Payload) ->
 
+    case handle_deliver(Topic, Payload, parse_client_id(ClientId)) of
+        {ok, M} ->
+            {ok, maps:to_list(M)};
+        {error, #{reason_code := Reason}} ->
+            {error, Reason}
+    end.
+
+on_deliver_m5(
+    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    Topic, _Properties, Payload) ->
+
     handle_deliver(Topic, Payload, parse_client_id(ClientId)).
 
 auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Subscriptions) ->
+
+    case handle_subscribe(Subscriptions, parse_client_id(ClientId)) of
+        ok ->
+            ok;
+        {error, #{reason_code := Reason}} ->
+            {error, Reason}
+    end.
+
+auth_on_subscribe_m5(
+    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    Subscriptions, _Properties) ->
 
     handle_subscribe(Subscriptions, parse_client_id(ClientId)).
 
@@ -406,40 +456,58 @@ validate_client_id(Val) ->
     Val.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, default, <<>>);
-parse_client_id(<<"v1.mqtt3.payload-only/service-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, service_payload_only, <<>>);
-parse_client_id(<<"v1.mqtt3/service-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, service, <<>>);
-parse_client_id(<<"v1.mqtt3/bridge-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, bridge, <<>>).
+parse_client_id(<<"v1.mqtt5", R/bits>>) ->
+    parse_client_mode(R, mqtt5);
+parse_client_id(<<"v1.mqtt3", R/bits>>) ->
+    parse_client_mode(R, mqtt3);
+parse_client_id(R) ->
+    error({bad_protocol, [R]}).
 
--spec parse_v1_agent_label(binary(), connection_mode(), binary()) -> client_id().
-parse_v1_agent_label(<<$., _/bits>>, _Mode, <<>>) ->
+-spec parse_client_mode(binary(), protocol()) -> client_id().
+parse_client_mode(<<"/agents/", R/bits>>, Prot) ->
+    parse_v1_agent_label(R, Prot, default, <<>>);
+parse_client_mode(<<".payload-only/service-agents/", R/bits>>, Prot) ->
+    parse_v1_agent_label(R, Prot, service_payload_only, <<>>);
+parse_client_mode(<<"/service-agents/", R/bits>>, Prot) ->
+    parse_v1_agent_label(R, Prot, service, <<>>);
+parse_client_mode(<<"/bridge-agents/", R/bits>>, Prot) ->
+    parse_v1_agent_label(R, Prot, bridge, <<>>);
+parse_client_mode(R, Prot) ->
+    error({bad_mode, [Prot, R]}).
+
+-spec parse_v1_agent_label(binary(), protocol(), connection_mode(), binary())
+    -> client_id().
+parse_v1_agent_label(<<$., _/bits>>, _Prot, _Mode, <<>>) ->
     error(missing_agent_label);
-parse_v1_agent_label(<<$., R/bits>>, Mode, Acc) ->
-    parse_v1_account_label(R, Mode, Acc, <<>>);
-parse_v1_agent_label(<<C, R/bits>>, Mode, Acc) ->
-    parse_v1_agent_label(R, Mode, <<Acc/binary, C>>);
-parse_v1_agent_label(<<>>, _Mode, Acc) ->
-    error({bad_client_id, [Acc]}).
+parse_v1_agent_label(<<$., R/bits>>, Prot, Mode, Acc) ->
+    parse_v1_account_label(R, Prot, Mode, Acc, <<>>);
+parse_v1_agent_label(<<C, R/bits>>, Prot, Mode, Acc) ->
+    parse_v1_agent_label(R, Prot, Mode, <<Acc/binary, C>>);
+parse_v1_agent_label(<<>>, Prot, Mode, Acc) ->
+    error({bad_agent_label, [Prot, Mode, Acc]}).
 
--spec parse_v1_account_label(binary(), connection_mode(), binary(), binary()) -> client_id().
-parse_v1_account_label(<<$., _/bits>>, _Mode, _AgentLabel, <<>>) ->
+-spec parse_v1_account_label(binary(), protocol(), connection_mode(), binary(), binary())
+    -> client_id().
+parse_v1_account_label(<<$., _/bits>>, _Prot, _Mode, _AgentLabel, <<>>) ->
     error(missing_account_label);
-parse_v1_account_label(<<$., R/bits>>, Mode, AgentLabel, Acc) ->
-    parse_v1_audience(R, Mode, AgentLabel, Acc);
-parse_v1_account_label(<<C, R/bits>>, Mode, AgentLabel, Acc) ->
-    parse_v1_account_label(R, Mode, AgentLabel, <<Acc/binary, C>>);
-parse_v1_account_label(<<>>, _Mode, AgentLabel, Acc) ->
-    error({bad_client_id, [AgentLabel, Acc]}).
+parse_v1_account_label(<<$., R/bits>>, Prot, Mode, AgentLabel, Acc) ->
+    parse_v1_audience(R, Prot, Mode, AgentLabel, Acc);
+parse_v1_account_label(<<C, R/bits>>, Prot, Mode, AgentLabel, Acc) ->
+    parse_v1_account_label(R, Prot, Mode, AgentLabel, <<Acc/binary, C>>);
+parse_v1_account_label(<<>>, Prot, Mode, AgentLabel, Acc) ->
+    error({bad_account_label, [Prot, Mode, AgentLabel, Acc]}).
 
--spec parse_v1_audience(binary(), connection_mode(), binary(), binary()) -> client_id().
-parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountLabel) ->
+-spec parse_v1_audience(binary(), protocol(), connection_mode(), binary(), binary())
+    -> client_id().
+parse_v1_audience(<<>>, _Prot, _Mode, _AgentLabel, _AccountLabel) ->
     error(missing_audience);
-parse_v1_audience(Audience, Mode, AgentLabel, AccountLabel) ->
-    #client_id{agent_label=AgentLabel, account_label=AccountLabel, audience=Audience, mode=Mode}.
+parse_v1_audience(Audience, Prot, Mode, AgentLabel, AccountLabel) ->
+    #client_id{
+        agent_label = AgentLabel,
+        account_label = AccountLabel,
+        audience = Audience,
+        mode = Mode,
+        prot = Prot}.
 
 -spec validate_authn_properties(map()) -> map().
 validate_authn_properties(Properties) ->
@@ -539,21 +607,27 @@ deliver_envelope(Mode, Payload) ->
 
 -ifdef(TEST).
 
-version_mode_t() ->
+version_t() ->
+    ?LET(
+        Index,
+        choose(1, 2),
+        lists:nth(Index, [<<"v1.mqtt5">>, <<"v1.mqtt3">>])).
+
+mode_t() ->
     ?LET(
         Index,
         choose(1, 4),
         lists:nth(Index,
-            [{<<"v1.mqtt3">>, <<"agents">>},
-             {<<"v1.mqtt3">>, <<"bridge-agents">>},
-             {<<"v1.mqtt3">>, <<"service-agents">>},
-             {<<"v1.mqtt3.payload-only">>, <<"service-agents">>}])).
+            [<<"/agents">>,
+             <<"/bridge-agents">>,
+             <<"/service-agents">>,
+             <<".payload-only/service-agents">>])).
 
 client_id_t() ->
     ?LET(
-        {{Version, Mode}, AgentLabel, AccountLabel, Audience},
-        {version_mode_t(), label_t(), label_t(), label_t()},
-        <<Version/binary, $/, Mode/binary, $/,
+        {Version, Mode, AgentLabel, AccountLabel, Audience},
+        {version_t(), mode_t(), label_t(), label_t(), label_t()},
+        <<Version/binary, Mode/binary, $/,
           AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
@@ -610,15 +684,20 @@ prop_onconnect() ->
             mqttgw_state:new(),
             mqttgw_state:put(authn, disabled),
             mqttgw_state:put(authz, disabled),
-            ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession)
+            ok =:= auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
+            ok =:= auth_on_register_m5(Peer, SubscriberId, Username, Password, CleanSession, #{})
         end).
 
 prop_onconnect_invalid_credentials() ->
     ?FORALL(
         {Peer, MountPoint, ClientId, Username, Password, CleanSession},
         {any(), string(), binary(32), binary_utf8_t(), binary_utf8_t(), boolean()},
-        {error, invalid_credentials} =:=
-            auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession)).
+        begin
+            {error, client_identifier_not_valid} =:=
+                auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession),
+            {error, #{reason_code => client_identifier_not_valid}} =:=
+                auth_on_register_m5(Peer, {MountPoint, ClientId}, Username, Password, CleanSession, #{})
+        end).
 
 authz_onconnect_test_() ->
     AgentLabel = <<"foo">>,
@@ -638,11 +717,14 @@ authz_onconnect_test_() ->
 
     Test = [
         { "usr: allowed",
-          [default], UsrAud, UsrPassword, ok },
+          [default], UsrAud, UsrPassword,
+          ok },
         { "usr: forbidden",
-          [service_payload_only, service, bridge], UsrAud, UsrPassword, {error, not_authorized} },
+          [service_payload_only, service, bridge], UsrAud, UsrPassword,
+          {error, #{reason_code => not_authorized}} },
         { "svc: allowed",
-          [default, service_payload_only, service, bridge], SvcAud, SvcPassword, ok }
+          [default, service_payload_only, service, bridge], SvcAud, SvcPassword,
+          ok }
     ],
 
     mqttgw_state:new(),
@@ -730,7 +812,9 @@ bridge_missing_properties_onpublish_test_() ->
     mqttgw_state:put(authz, disabled),
     [begin
         Message = jsx:encode(#{payload => <<>>, properties => Properties}),
-        {Desc, ?_assertEqual({error, bad_message}, handle_publish([], Message, ClientId))}
+        Result = handle_publish([], Message, ClientId),
+        Expect = {error, #{reason_code => impl_specific_error}},
+        {Desc, ?_assertEqual(Expect, Result)}
      end || {Desc, Properties} <- Test].
 
 authz_onpublish_test_() ->
@@ -831,7 +915,7 @@ authz_onsubscribe_test_() ->
 
     Test = [
         {"usr: broadcast", Broadcast, [default], ok}, %% <- TODO: should be forbidden
-        {"usr: multicast", Multicast, [default], {error, not_authorized}},
+        {"usr: multicast", Multicast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: unicast", Unicast, [default], ok},
         {"svc: broadcast", Broadcast, [service_payload_only, service, bridge], ok},
         {"svc: multicast", Multicast, [service_payload_only, service, bridge], ok},
