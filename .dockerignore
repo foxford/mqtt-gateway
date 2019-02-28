@@ -5,3 +5,4 @@
 !rel
 !src
 !docker/entrypoint.sh
+!docker/vernemq.conf
