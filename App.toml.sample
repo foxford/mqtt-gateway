@@ -13,5 +13,5 @@ algorithm = "ES256"
 key = "/app/data/keys/svc.public_key.pem.sample"
 
 [authz."svc.example.org"]
-type = "trusted"
-trusted = ["svc.example.org"]
+type = "local"
+trusted = ["app.svc.example.org"]

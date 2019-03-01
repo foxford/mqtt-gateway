@@ -621,7 +621,10 @@ prop_onconnect_invalid_credentials() ->
             auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession)).
 
 authz_onconnect_test_() ->
+    AgentLabel = <<"foo">>,
+    AccountLabel = <<"bar">>,
     SvcAud = MeAud = <<"svc.example.org">>,
+    SvcAccountId = #{label => AccountLabel, audience => SvcAud},
     UsrAud = <<"usr.example.net">>,
 
     #{password := SvcPassword,
@@ -631,7 +634,7 @@ authz_onconnect_test_() ->
       config := UsrAuthnConfig} =
         make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
     #{me := Me,
-      config := AuthzConfig} = make_sample_me(MeAud, [SvcAud]),
+      config := AuthzConfig} = make_sample_me(MeAud, [SvcAccountId]),
 
     Test = [
         { "usr: allowed",
@@ -650,7 +653,8 @@ authz_onconnect_test_() ->
     [begin
         [begin
             ClientId =
-                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+                make_sample_connection_client_id(
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
             {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, _Result} <- Test],
@@ -661,7 +665,8 @@ authz_onconnect_test_() ->
     [begin
         [begin
             ClientId =
-                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+                make_sample_connection_client_id(
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
             {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test],
@@ -670,7 +675,8 @@ authz_onconnect_test_() ->
     [begin
         [begin
             ClientId =
-                make_sample_connection_client_id(<<"foo">>, <<"bar">>, Aud, Mode, <<"v1.mqtt3">>),
+                make_sample_connection_client_id(
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
             {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test].
