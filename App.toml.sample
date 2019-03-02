@@ -1,6 +1,4 @@
-[id]
-label = "mqtt-gateway"
-audience = "svc.example.org"
+id = "mqtt-gateway.svc.example.org"
 
 [authn."iam.svc.example.net"]
 audience = ["usr.example.net"]
