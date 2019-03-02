@@ -56,11 +56,11 @@
 -type topic() :: [binary()].
 -type subscription() :: {topic(), qos()}.
 
--record (envelope, {
+-record (message, {
     payload    :: binary(),
     properties :: map()
 }).
--type envelope() :: #envelope{}.
+-type message() :: #message{}.
 
 -type error() :: #{reason_code := atom()}.
 
@@ -540,9 +540,9 @@ validate_audience_property(#{<<"audience">> := Val}) ->
 validate_audience_property(_) ->
     error(missing_audience).
 
--spec validate_envelope(envelope()) -> envelope().
+-spec validate_envelope(message()) -> message().
 validate_envelope(Val) ->
-    #envelope{
+    #message{
         payload=Payload,
         properties=Properties} = Val,
 
@@ -550,18 +550,18 @@ validate_envelope(Val) ->
     true = is_map(Properties),
     Val.
 
--spec parse_envelope(connection_mode(), binary()) -> envelope().
+-spec parse_envelope(connection_mode(), binary()) -> message().
 parse_envelope(Mode, Message) when (Mode =:= default) or (Mode =:= service) or (Mode =:= bridge) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
-    #envelope{payload=Payload, properties=Properties};
+    #message{payload=Payload, properties=Properties};
 parse_envelope(service_payload_only, Message) ->
-    #envelope{payload=Message, properties=#{}}.
+    #message{payload=Message, properties=#{}}.
 
--spec envelope(connection_mode(), binary(), binary(), binary(), envelope()) -> binary().
+-spec envelope(connection_mode(), binary(), binary(), binary(), message()) -> binary().
 envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
-    #envelope{
+    #message{
         payload=Payload,
         properties=Properties} = Envelope,
 
@@ -597,7 +597,7 @@ deliver_envelope(Mode, Payload) ->
         Mode when (Mode =:= default) or (Mode =:= service) or (Mode =:= bridge) ->
             Payload;
         service_payload_only ->
-            #envelope{payload=InnerPayload} = Envelope,
+            #message{payload=InnerPayload} = Envelope,
             InnerPayload
     end.
 
