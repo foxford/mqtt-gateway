@@ -57,8 +57,8 @@
 -type subscription() :: {topic(), qos()}.
 
 -record (message, {
-    payload    :: binary(),
-    properties :: map()
+    payload          :: binary(),
+    properties = #{} :: map()
 }).
 -type message() :: #message{}.
 
@@ -268,6 +268,17 @@ handle_deliver(_Topic, Payload, ClientId) ->
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, agent_id(ClientId), T, R]),
             {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec deliver_envelope(connection_mode(), binary()) -> binary().
+deliver_envelope(Mode, Payload) ->
+    Envelope = validate_envelope(parse_envelope(default, Payload)),
+    case Mode of
+        Mode when (Mode =:= default) or (Mode =:= service) or (Mode =:= bridge) ->
+            Payload;
+        service_payload_only ->
+            #message{payload=InnerPayload} = Envelope,
+            InnerPayload
     end.
 
 %% =============================================================================
@@ -557,7 +568,7 @@ parse_envelope(Mode, Message) when (Mode =:= default) or (Mode =:= service) or (
     Properties = maps:get(<<"properties">>, Envelope, #{}),
     #message{payload=Payload, properties=Properties};
 parse_envelope(service_payload_only, Message) ->
-    #message{payload=Message, properties=#{}}.
+    #message{payload=Message}.
 
 -spec envelope(connection_mode(), binary(), binary(), binary(), message()) -> binary().
 envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
@@ -565,41 +576,84 @@ envelope(Mode, AgentLabel, AccountLabel, Audience, Envelope) ->
         payload=Payload,
         properties=Properties} = Envelope,
 
+    UpdateProperties =
+        update_message_properties(
+            Mode, AgentLabel, AccountLabel, Audience,
+            to_properteies(Properties, #{})),
+
+    jsx:encode(
+        #{properties => to_envelope_properties(UpdateProperties, #{}),
+          payload => Payload}).
+
+-spec update_message_properties(connection_mode(), binary(), binary(), binary(), map()) -> map().
+update_message_properties(Mode, AgentLabel, AccountLabel, Audience, Properties) ->
+    UserProperties0 = maps:from_list(maps:get('User-Property', Properties, #{})),
+
     %% Everything is "event" by default
-    UpdatedProperties0 =
-        case maps:find(<<"type">>, Properties) of
-            error -> Properties#{<<"type">> => <<"event">>};
-            _     -> Properties
+    UserProperties1 =
+        case maps:find(<<"type">>, UserProperties0) of
+            error -> UserProperties0#{<<"type">> => <<"event">>};
+            _     -> UserProperties0
         end,
 
     %% Override authn properties
-    UpdatedProperties1 =
+    UserProperties2 =
         case Mode of
             bridge ->
                 %% We do not override authn properties for 'bridge' mode,
                 %% but verify that they are exist
-                validate_authn_properties(UpdatedProperties0);
+                validate_authn_properties(UserProperties1);
             _ ->
-                UpdatedProperties0#{
+                UserProperties1#{
                     <<"agent_label">> => AgentLabel,
                     <<"account_label">> => AccountLabel,
                     <<"audience">> => Audience}
         end,
 
-    jsx:encode(
-        #{properties => UpdatedProperties1,
-          payload => Payload}).
+    Properties#{'User-Property' => maps:to_list(UserProperties2)}.
 
--spec deliver_envelope(connection_mode(), binary()) -> binary().
-deliver_envelope(Mode, Payload) ->
-    Envelope = validate_envelope(parse_envelope(default, Payload)),
-    case Mode of
-        Mode when (Mode =:= default) or (Mode =:= service) or (Mode =:= bridge) ->
-            Payload;
-        service_payload_only ->
-            #message{payload=InnerPayload} = Envelope,
-            InnerPayload
-    end.
+-spec to_envelope_properties(map(), map()) -> map().
+to_envelope_properties(Properties, Acc0) ->
+    Acc1 =
+        case maps:find('User-Property', Properties) of
+            {ok, UserL} -> maps:merge(Acc0, maps:from_list(UserL));
+            error -> Acc0
+        end,
+
+    Acc2 =
+        case maps:find('Correlation-Data', Properties) of
+            {ok, CorrelationData} -> Acc1#{<<"correlation_data">> => CorrelationData};
+            error -> Acc1
+        end,
+
+    Acc3 =
+        case maps:find('Response-Topic', Properties) of
+            {ok, ResponseTopic} -> Acc2#{<<"response_topic">> => ResponseTopic};
+            error -> Acc2
+        end,
+
+    Acc3.
+
+-spec to_properteies(map(), map()) -> map().
+to_properteies(Rest0, Acc0) ->
+    {Rest1, Acc1} =
+        case maps:take(<<"response_topic">>, Rest0) of
+            {ResponseTopic, M1} -> {M1, Acc0#{'Response-Topic' => ResponseTopic}};
+            error -> {Rest0, Acc0}
+        end,
+
+    {Rest2, Acc2} =
+        case maps:take(<<"correlation_data">>, Rest1) of
+            {CorrelationData, M2} -> {M2, Acc0#{'Correlation-Data' => CorrelationData}};
+            error -> {Rest1, Acc1}
+        end,
+
+    Acc2#{
+        'User-Property' =>
+            maps:to_list(
+                maps:merge(
+                    maps:get('User-Property', Acc2, #{}),
+                    Rest2))}.
 
 %% =============================================================================
 %% Tests
@@ -693,10 +747,11 @@ prop_onconnect_invalid_credentials() ->
         {Peer, MountPoint, ClientId, Username, Password, CleanSession},
         {any(), string(), binary(32), binary_utf8_t(), binary_utf8_t(), boolean()},
         begin
+            SubscriberId = {MountPoint, ClientId},
             {error, client_identifier_not_valid} =:=
-                auth_on_register(Peer, {MountPoint, ClientId}, Username, Password, CleanSession),
+                auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
             {error, #{reason_code => client_identifier_not_valid}} =:=
-                auth_on_register_m5(Peer, {MountPoint, ClientId}, Username, Password, CleanSession, #{})
+                auth_on_register_m5(Peer, SubscriberId, Username, Password, CleanSession, #{})
         end).
 
 authz_onconnect_test_() ->
