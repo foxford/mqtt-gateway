@@ -16,23 +16,7 @@
 
 -spec read_config(toml:config()) -> id().
 read_config(TomlConfig) ->
-    #{label => read_label(TomlConfig),
-      audience => read_audience(TomlConfig)}.
-
-%% =============================================================================
-%% Internal functions
-%% =============================================================================
-
--spec read_label(toml:config()) -> binary().
-read_label(TomlConfig) ->
-    case toml:get_value(["id"], "label", TomlConfig) of
-        {string, Val} -> list_to_binary(Val);
-        Other -> error({bad_id_label, Other})
-    end.
-
--spec read_audience(toml:config()) -> binary().
-read_audience(TomlConfig) ->
-    case toml:get_value(["id"], "audience", TomlConfig) of
-        {string, Val} -> list_to_binary(Val);
-        Other -> error({bad_id_audience, Other})
+    case toml:get_value([], "id", TomlConfig) of
+        {string, Val} -> mqttgw_authn:parse_account_id(list_to_binary(Val));
+        Other -> error({bad_id, Other})
     end.

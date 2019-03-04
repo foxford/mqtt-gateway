@@ -48,10 +48,9 @@ authorize(Audience, AccountId, Config) ->
     case maps:find(Audience, Config) of
         {ok, Inner} ->
             #{trusted := Trusted} = Inner,
-            #{audience := SAud} = AccountId,
-            case gb_sets:is_member(SAud, Trusted) of
+            case gb_sets:is_member(AccountId, Trusted) of
                 true -> ok;
-                _ -> error({nomatch_trusted, SAud})
+                _ -> error({nomatch_trusted, AccountId, Trusted})
             end;
         _ ->
             error({missing_authz_config, Audience})
@@ -67,10 +66,10 @@ parse_audience(["authz", Aud]) when is_list(Aud) ->
 parse_audience(Val) ->
     error({bad_audience, Val}).
 
--spec parse_type(toml:section(), toml:config()) -> trusted.
+-spec parse_type(toml:section(), toml:config()) -> local.
 parse_type(Section, Config) ->
     case toml:get_value(Section, "type", Config) of
-        {string, "trusted"} -> trusted;
+        {string, "local"} -> local;
         none -> error(missing_type);
         Other -> error({bad_type, Other})
     end.
@@ -78,7 +77,12 @@ parse_type(Section, Config) ->
 -spec parse_trusted(toml:section(), toml:config()) -> gb_sets:set().
 parse_trusted(Section, Config) ->
     case toml:get_value(Section, "trusted", Config) of
-        {array, {string, L}} -> gb_sets:from_list(lists:map(fun list_to_binary/1, L));
-        none -> error(missing_trusted);
-        Other -> error({bad_trusted, Other})
+        {array, {string, L}} ->
+            gb_sets:from_list(lists:map(fun(Val) ->
+                mqttgw_authn:parse_account_id(list_to_binary(Val))
+            end, L));
+        none ->
+            error(missing_trusted);
+        Other ->
+            error({bad_trusted, Other})
     end.

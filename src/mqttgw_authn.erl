@@ -5,6 +5,7 @@
     read_config/0,
     read_config/1,
     authenticate/2,
+    parse_account_id/1,
     format_account_id/1
 ]).
 
@@ -64,11 +65,20 @@ authenticate(Token, Config) ->
     #{label => Sub,
       audience => Aud}.
 
+-spec parse_account_id(binary()) -> account_id().
+parse_account_id(Val) ->
+    case binary:split(Val, <<$.>>) of
+        [Label, Audience] ->
+            #{label => Label,
+              audience => Audience};
+        _ ->
+            error({bad_accounnt_id, Val})
+    end.
+
 -spec format_account_id(account_id()) -> binary().
 format_account_id(AccountId) ->
     #{label := Label,
       audience := Audience} = AccountId,
-
     <<Label/binary, $., Audience/binary>>.
 
 %% =============================================================================
