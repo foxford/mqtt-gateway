@@ -44,10 +44,8 @@
 
 %% Types
 -type connection_mode() :: default | service_payload_only | service | bridge.
--type protocol() :: mqtt3 | mqtt5.
 
 -record(client_id, {
-    prot          :: protocol(),
     mode          :: connection_mode(),
     agent_label   :: binary(),
     account_label :: binary(),
@@ -168,11 +166,11 @@ handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
 
 -spec handle_connect_success(client_id()) -> ok | {error, error()}.
 handle_connect_success(ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     error_logger:info_msg(
-        "Agent = '~s' connected: protocol = '~s', mode = '~s'",
-        [agent_id(ClientId), Prot, Mode]),
+        "Agent = '~s' connected: mode = '~s'",
+        [agent_id(ClientId), Mode]),
     ok.
 
 %% =============================================================================
@@ -181,7 +179,7 @@ handle_connect_success(ClientId) ->
 
 -spec handle_publish_mqtt3(topic(), binary(), client_id()) -> {ok, list()} | {error, error()}.
 handle_publish_mqtt3(Topic, InputPayload, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     try handle_message_properties(
         handle_mqtt3_envelope_properties(
@@ -198,15 +196,15 @@ handle_publish_mqtt3(Topic, InputPayload, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on publish: an invalid message = ~p "
-                "from the agent = '~s' using protocol = '~s', mode = '~s', "
+                "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, agent_id(ClientId), Prot, Mode, T, R]),
+                [InputPayload, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
 -spec handle_publish_mqtt5(topic(), binary(), map(), client_id()) -> {ok, map()} | {error, error()}.
 handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     InputMessage = #message{payload = InputPayload, properties = InputProperties},
     try handle_message_properties(InputMessage, ClientId) of
@@ -235,9 +233,9 @@ handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on publish: an invalid message = ~p with properties = ~p "
-                "from the agent = '~s' using protocol = '~s', mode = '~s', "
+                "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, InputProperties, agent_id(ClientId), Prot, Mode, T, R]),
+                [InputPayload, InputProperties, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -261,7 +259,7 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
 
 -spec handle_publish_authz_topic(topic(), message(), client_id()) -> ok | {error, error()}.
 handle_publish_authz_topic(Topic, _Message, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
@@ -270,9 +268,9 @@ handle_publish_authz_topic(Topic, _Message, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on publish: publishing to the topic = ~p isn't allowed "
-                "for the agent = '~s' using protocol = '~s', mode = '~s', "
+                "for the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Topic, agent_id(ClientId), Prot, Mode, T, R]),
+                [Topic, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => not_authorized}}
     end.
 
@@ -388,7 +386,7 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 
 -spec handle_deliver_mqtt3(binary(), client_id()) -> ok | {ok, list()} | {error, error()}.
 handle_deliver_mqtt3(InputPayload, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     try handle_mqtt3_envelope_properties(
             validate_envelope(parse_envelope(default, InputPayload))) of
@@ -398,9 +396,9 @@ handle_deliver_mqtt3(InputPayload, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on deliver: an invalid message = ~p "
-                "from the agent = '~s' using protocol = '~s', mode = '~s', "
+                "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, agent_id(ClientId), Prot, Mode, T, R]),
+                [InputPayload, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -413,7 +411,7 @@ handle_deliver_mqtt3_changes(_Mode, Message) ->
 
 -spec handle_deliver_mqtt5(binary(), map(), client_id()) -> ok | {ok, map()} | {error, error()}.
 handle_deliver_mqtt5(InputPayload, _InputProperties, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     %% TODO: don't modify message payload on publish (only properties)
     % InputMessage = #message{payload = InputPayload, properties = InputProperties},
@@ -427,9 +425,9 @@ handle_deliver_mqtt5(InputPayload, _InputProperties, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on deliver: an invalid message = ~p "
-                "from the agent = '~s' using protocol = '~s', mode = '~s', "
+                "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, agent_id(ClientId), Prot, Mode, T, R]),
+                [InputPayload, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -468,7 +466,7 @@ handle_subscribe_authz_config(Subscriptions, ClientId) ->
 
 -spec handle_subscribe_authz_topic([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe_authz_topic(Subscriptions, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} = ClientId,
+    #client_id{mode=Mode} = ClientId,
 
     try [verify_subscribe_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode)
          || {Topic, _QoS} <- Subscriptions] of
@@ -478,19 +476,19 @@ handle_subscribe_authz_topic(Subscriptions, ClientId) ->
         T:R ->
             error_logger:error_msg(
                 "Error on subscribe: one of the subscriptions = ~p isn't allowed "
-                "for the agent = '~s' using protocol = '~s', mode = '~s', "
+                "for the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Subscriptions, agent_id(ClientId), Prot, Mode, T, R]),
+                [Subscriptions, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => not_authorized}}
     end.
 
 -spec handle_subscribe_success([subscription()], client_id()) ->ok | {error, error()}.
 handle_subscribe_success(Topics, ClientId) ->
-    #client_id{prot=Prot, mode=Mode} =ClientId,
+    #client_id{mode=Mode} =ClientId,
 
     error_logger:info_msg(
-        "Agent = '~s' subscribed: protocol = '~s', mode = '~s', topics = ~p",
-        [agent_id(ClientId), Prot, Mode, Topics]),
+        "Agent = '~s' subscribed: mode = '~s', topics = ~p",
+        [agent_id(ClientId), Mode, Topics]),
 
     ok.
 
@@ -614,58 +612,59 @@ validate_client_id(Val) ->
     Val.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<"v1.mqtt3", R/bits>>) ->
-    parse_client_mode(R, mqtt3);
-parse_client_id(<<"v1", R/bits>>) ->
-    parse_client_mode(R, mqtt5);
+parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
+    parse_v1_agent_label(R, default, <<>>);
+parse_client_id(<<"v1.mqtt3.payload-only/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service_payload_only, <<>>);
+parse_client_id(<<"v1.mqtt3/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service, <<>>);
+parse_client_id(<<"v1.mqtt3/bridge-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, bridge, <<>>);
+%% TODO: remove everything above because we do not need
+%% a protocol within connection string
+parse_client_id(<<"v1/agents/", R/bits>>) ->
+    parse_v1_agent_label(R, default, <<>>);
+parse_client_id(<<"v1.payload-only/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service_payload_only, <<>>);
+parse_client_id(<<"v1/service-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, service, <<>>);
+parse_client_id(<<"v1/bridge-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, bridge, <<>>);
 parse_client_id(R) ->
-    error({bad_protocol, [R]}).
+    error({bad_mode, [R]}).
 
--spec parse_client_mode(binary(), protocol()) -> client_id().
-parse_client_mode(<<"/agents/", R/bits>>, Prot) ->
-    parse_v1_agent_label(R, Prot, default, <<>>);
-parse_client_mode(<<".payload-only/service-agents/", R/bits>>, Prot) ->
-    parse_v1_agent_label(R, Prot, service_payload_only, <<>>);
-parse_client_mode(<<"/service-agents/", R/bits>>, Prot) ->
-    parse_v1_agent_label(R, Prot, service, <<>>);
-parse_client_mode(<<"/bridge-agents/", R/bits>>, Prot) ->
-    parse_v1_agent_label(R, Prot, bridge, <<>>);
-parse_client_mode(R, Prot) ->
-    error({bad_mode, [Prot, R]}).
-
--spec parse_v1_agent_label(binary(), protocol(), connection_mode(), binary())
+-spec parse_v1_agent_label(binary(), connection_mode(), binary())
     -> client_id().
-parse_v1_agent_label(<<$., _/bits>>, _Prot, _Mode, <<>>) ->
+parse_v1_agent_label(<<$., _/bits>>, _Mode, <<>>) ->
     error(missing_agent_label);
-parse_v1_agent_label(<<$., R/bits>>, Prot, Mode, Acc) ->
-    parse_v1_account_label(R, Prot, Mode, Acc, <<>>);
-parse_v1_agent_label(<<C, R/bits>>, Prot, Mode, Acc) ->
-    parse_v1_agent_label(R, Prot, Mode, <<Acc/binary, C>>);
-parse_v1_agent_label(<<>>, Prot, Mode, Acc) ->
-    error({bad_agent_label, [Prot, Mode, Acc]}).
+parse_v1_agent_label(<<$., R/bits>>, Mode, Acc) ->
+    parse_v1_account_label(R, Mode, Acc, <<>>);
+parse_v1_agent_label(<<C, R/bits>>, Mode, Acc) ->
+    parse_v1_agent_label(R, Mode, <<Acc/binary, C>>);
+parse_v1_agent_label(<<>>, Mode, Acc) ->
+    error({bad_agent_label, [Mode, Acc]}).
 
--spec parse_v1_account_label(binary(), protocol(), connection_mode(), binary(), binary())
+-spec parse_v1_account_label(binary(), connection_mode(), binary(), binary())
     -> client_id().
-parse_v1_account_label(<<$., _/bits>>, _Prot, _Mode, _AgentLabel, <<>>) ->
+parse_v1_account_label(<<$., _/bits>>, _Mode, _AgentLabel, <<>>) ->
     error(missing_account_label);
-parse_v1_account_label(<<$., R/bits>>, Prot, Mode, AgentLabel, Acc) ->
-    parse_v1_audience(R, Prot, Mode, AgentLabel, Acc);
-parse_v1_account_label(<<C, R/bits>>, Prot, Mode, AgentLabel, Acc) ->
-    parse_v1_account_label(R, Prot, Mode, AgentLabel, <<Acc/binary, C>>);
-parse_v1_account_label(<<>>, Prot, Mode, AgentLabel, Acc) ->
-    error({bad_account_label, [Prot, Mode, AgentLabel, Acc]}).
+parse_v1_account_label(<<$., R/bits>>,  Mode, AgentLabel, Acc) ->
+    parse_v1_audience(R, Mode, AgentLabel, Acc);
+parse_v1_account_label(<<C, R/bits>>, Mode, AgentLabel, Acc) ->
+    parse_v1_account_label(R, Mode, AgentLabel, <<Acc/binary, C>>);
+parse_v1_account_label(<<>>, Mode, AgentLabel, Acc) ->
+    error({bad_account_label, [Mode, AgentLabel, Acc]}).
 
--spec parse_v1_audience(binary(), protocol(), connection_mode(), binary(), binary())
+-spec parse_v1_audience(binary(), connection_mode(), binary(), binary())
     -> client_id().
-parse_v1_audience(<<>>, _Prot, _Mode, _AgentLabel, _AccountLabel) ->
+parse_v1_audience(<<>>, _Mode, _AgentLabel, _AccountLabel) ->
     error(missing_audience);
-parse_v1_audience(Audience, Prot, Mode, AgentLabel, AccountLabel) ->
+parse_v1_audience(Audience, Mode, AgentLabel, AccountLabel) ->
     #client_id{
         agent_label = AgentLabel,
         account_label = AccountLabel,
         audience = Audience,
-        mode = Mode,
-        prot = Prot}.
+        mode = Mode}.
 
 -spec validate_authn_properties(map()) -> map().
 validate_authn_properties(Properties) ->
