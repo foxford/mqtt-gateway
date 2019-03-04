@@ -13,7 +13,7 @@ Authorization for publish/subscribe operations is based conventions and dynamic 
 
 | Name           |   Type |  Default | Description                                                      |
 | -------------- | ------ | -------- | ---------------------------------------------------------------- |
-| MQTT_CLIENT_ID | String | required | `v1.mqtt3/agents/${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}`    |
+| MQTT_CLIENT_ID | String | required | `v1/agents/${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}`    |
 | MQTT_PASSWORD  | String | required | JSON Web Token. Token is required if auhentification is enabled. |
 | MQTT_USERNAME  | String | optional | The value is ignored                                             |
 
@@ -36,12 +36,12 @@ docker run -ti --rm \
 
 ## Subscribing to messages
 mosquitto_sub -h $(docker-machine ip) \
-    -i 'v1.mqtt3/agents/test-sub.usr.john-doe.example.net' \
+    -i 'v1/agents/test-sub.john-doe.usr.example.net' \
     -t 'foo'
 
 ## Publishing a message
 mosquitto_pub -h $(docker-machine ip) \
-    -i 'v1.mqtt3/agents/test-pub.usr.john-doe.example.net' \
+    -i 'v1/agents/test-pub.john-doe.usr.example.net' \
     -t 'foo' \
     -m '{"payload": "bar"}'
 ```
@@ -64,7 +64,7 @@ docker run -ti --rm \
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
 ACCOUNT_ID='app.svc.example.org' \
     && mosquitto_sub -h $(docker-machine ip) \
-        -i "v1.mqtt3/service-agents/test.${ACCOUNT_ID}" \
+        -i "v1/service-agents/test.${ACCOUNT_ID}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
         -t "agents/+/api/v1/out/${ACCOUNT_ID}"
@@ -74,7 +74,7 @@ ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZ
 ACCOUNT_ID='john-doe.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_pub -h $(docker-machine ip) \
-        -i "v1.mqtt3/agents/test.${ACCOUNT_ID}" \
+        -i "v1/agents/test.${ACCOUNT_ID}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
         -t "agents/test.${ACCOUNT_ID}/api/v1/out/${APP}" \
