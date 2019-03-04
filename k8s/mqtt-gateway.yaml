@@ -7,13 +7,14 @@ spec:
   selector:
     matchLabels:
       app: mqtt-gateway
-  replicas: 1
+  replicas: 3
   template:
     metadata:
       labels:
         app: mqtt-gateway
     spec:
       terminationGracePeriodSeconds: 30
+      serviceAccountName: mqtt-gateway
       containers:
         - name: mqtt-gateway
           image: netologygroup/mqtt-gateway
@@ -27,15 +28,39 @@ spec:
               name: mqtt
             - containerPort: 8080
               name: http
-          env:
-            - name: APP_CONFIG
-              valueFrom:
-                configMapKeyRef:
-                  name: mqtt-gateway-environment
-                  key: APP_CONFIG
+           env:
+             - name: MY_POD_NAME
+               valueFrom:
+                 fieldRef:
+                   fieldPath: metadata.name
+             - name: APP_CONFIG
+               valueFrom:
+                 configMapKeyRef:
+                   name: mqtt-gateway-environment
+                   key: APP_CONFIG
+             - name: APP_AUTHN_ENABLED
+               valueFrom:
+                 configMapKeyRef:
+                   name: mqtt-gateway-environment
+                   key: APP_AUTHN_ENABLED
+             - name: APP_AUTHZ_ENABLED
+               valueFrom:
+                 configMapKeyRef:
+                   name: mqtt-gateway-environment
+                   key: APP_AUTHZ_ENABLED
+             - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+               valueFrom:
+                 configMapKeyRef:
+                   name: mqtt-gateway-environment
+                   key: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+             - name: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
+               valueFrom:
+                 configMapKeyRef:
+                   name: mqtt-gateway-environment
+                   key: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
           volumeMounts:
             - name: config
-              mountPath: /etc/vernemq/vernemq.conf
+              mountPath: /vernemq/etc/vernemq.conf
               subPath: vernemq.conf
             - name: config
               mountPath: /app/App.toml
@@ -58,8 +83,27 @@ spec:
             limits:
               cpu: "1"
               memory: 2Gi
+      ### Init Container use, because kubernetes configmap work in RO mode, but entrypoint of vernemq need to change some params in config file
+      initContainers:
+      - name: copy-config-from-volumes
+        image: busybox
+        command:
+        - "sh"
+        - "-c"
+        - "cp /config-tmp/* /config"
+        volumeMounts:
+          - name: config-tmp
+            mountPath: /config-tmp/vernemq.conf
+            subPath: vernemq.conf
+          - name: config-tmp
+            mountPath: /config-tmp/App.toml
+            subPath: App.toml
+          - name: config
+            mountPath: /config
       volumes:
         - name: config
+          emptyDir: {}
+        -name: config-tmp
           configMap:
             name: mqtt-gateway-config
         - name: iam
