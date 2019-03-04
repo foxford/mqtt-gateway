@@ -614,10 +614,10 @@ validate_client_id(Val) ->
     Val.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<"v1.mqtt5", R/bits>>) ->
-    parse_client_mode(R, mqtt5);
 parse_client_id(<<"v1.mqtt3", R/bits>>) ->
     parse_client_mode(R, mqtt3);
+parse_client_id(<<"v1", R/bits>>) ->
+    parse_client_mode(R, mqtt5);
 parse_client_id(R) ->
     error({bad_protocol, [R]}).
 
@@ -733,33 +733,25 @@ envelope(Message) ->
 
 -ifdef(TEST).
 
-prot_t() ->
-    ?LET(
-        Index,
-        choose(1, 2),
-        lists:nth(Index, [mqtt5, mqtt3])).
-
-version_t() ->
-    ?LET(
-        Prot,
-        prot_t(),
-        <<"v1.", (atom_to_binary(Prot, utf8))/binary>>).
-
-mode_t() ->
+version_mode_t() ->
     ?LET(
         Index,
         choose(1, 4),
         lists:nth(Index,
-            [<<"/agents">>,
-             <<"/bridge-agents">>,
-             <<"/service-agents">>,
-             <<".payload-only/service-agents">>])).
+            [{<<"v1">>, <<"agents">>},
+             {<<"v1">>, <<"bridge-agents">>},
+             {<<"v1">>, <<"service-agents">>},
+             {<<"v1.payload-only">>, <<"service-agents">>},
+             {<<"v1.mqtt3">>, <<"agents">>},
+             {<<"v1.mqtt3">>, <<"bridge-agents">>},
+             {<<"v1.mqtt3">>, <<"service-agents">>},
+             {<<"v1.mqtt3.payload-only">>, <<"service-agents">>}])).
 
 client_id_t() ->
     ?LET(
-        {Version, Mode, AgentLabel, AccountLabel, Audience},
-        {version_t(), mode_t(), label_t(), label_t(), label_t()},
-        <<Version/binary, Mode/binary, $/,
+        {{Version, Mode}, AgentLabel, AccountLabel, Audience},
+        {version_mode_t(), label_t(), label_t(), label_t()},
+        <<Version/binary, $/, Mode/binary, $/,
           AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
 
 subscriber_id_t() ->
