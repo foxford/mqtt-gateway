@@ -11,6 +11,8 @@ fi
 
 if [[ ! ${NAMESPACE} ]]; then echo "NAMESPACE isn't specified" 1>&2; exit 1; fi
 if [[ ! ${GITHUB_TOKEN} ]]; then echo "GITHUB_TOKEN isn't specified" 1>&2; exit 1; fi
+BRANCH="${BRANCH:-master}"
+PROJECT="mqtt-gateway"
 
 SOURCE=${SOURCE:-'https://api.github.com/repos/netology-group/environment/contents/cluster/k8s'}
 
@@ -23,7 +25,7 @@ function FILE_FROM_GITHUB() {
         -H "authorization: token ${GITHUB_TOKEN}" \
         -H 'accept: application/vnd.github.v3.raw' \
         -o "${DEST_DIR}/$(basename $URI)" \
-        "${URI}"
+        "${URI}?ref=${BRANCH}"
 }
 
 set -ex
@@ -31,10 +33,10 @@ set -ex
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca.crt"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/docs.sh"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/travis-run.sh"
-FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/_/mqtt-gateway.yaml"
-FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/_/mqtt-gateway-headless.yaml"
-FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-config.yaml"
-FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-environment.yaml"
-FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/mqtt-gateway/ns/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}-headless.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-config.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-environment.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-loadbalancer.yaml"
 
 chmod u+x deploy/{docs.sh,travis-run.sh}
