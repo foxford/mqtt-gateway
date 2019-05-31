@@ -465,7 +465,7 @@ handle_subscribe_authz_config(Subscriptions, ClientId) ->
 handle_subscribe_authz_topic(Subscriptions, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
-    try [verify_subscribe_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode)
+    try [verify_subscribtion(Topic, account_id(ClientId), agent_id(ClientId), Mode)
          || {Topic, _QoS} <- Subscriptions] of
         _ ->
             handle_subscribe_success(Subscriptions, ClientId)
@@ -488,6 +488,12 @@ handle_subscribe_success(Topics, ClientId) ->
         [agent_id(ClientId), Mode, Topics]),
 
     ok.
+
+-spec verify_subscribtion(topic(), binary(), binary(), connection_mode()) -> ok.
+verify_subscribtion([<<"$share">>, _Group | Topic], AccountId, AgentId, Mode) ->
+    verify_subscribe_topic(Topic, AccountId, AgentId, Mode);
+verify_subscribtion(Topic, AccountId, AgentId, Mode) ->
+    verify_subscribe_topic(Topic, AccountId, AgentId, Mode).
 
 -spec verify_subscribe_topic(topic(), binary(), binary(), connection_mode()) -> ok.
 %% Broadcast:
@@ -1102,8 +1108,12 @@ authz_onsubscribe_test_() ->
     [begin
         [begin
             ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
-            Result = handle_subscribe_authz([{TopicFn(ClientId), 0}], ClientId),
-            {Desc, ?_assertEqual(Expect, Result)}
+            SubscriptionStd = [{TopicFn(ClientId), 0}],
+            SubscriptionShared = [{[<<"$share">>, <<"g">> | TopicFn(ClientId)], 0}],
+            ResultStd = handle_subscribe_authz(SubscriptionStd, ClientId),
+            ResultShared = handle_subscribe_authz(SubscriptionShared, ClientId),
+            [{Desc, ?_assertEqual(Expect, ResultStd)},
+             {Desc ++ "– shared", ?_assertEqual(Expect, ResultShared)}]
         end || Mode <- Modes]
     end || {Desc, TopicFn, Modes, Expect} <- Test].
 
