@@ -5,9 +5,13 @@ define PROJECT_ENV
 	[
 		{vmq_plugin_hooks, [
 			{mqttgw, auth_on_register, 5, []},
+			{mqttgw, auth_on_register_m5, 6, []},
 			{mqttgw, auth_on_publish, 6, []},
+			{mqttgw, auth_on_publish_m5, 7, []},
 			{mqttgw, on_deliver, 4, []},
-			{mqttgw, auth_on_subscribe, 3, []}
+			{mqttgw, on_deliver_m5, 5, []},
+			{mqttgw, auth_on_subscribe, 3, []},
+			{mqttgw, auth_on_subscribe_m5, 4, []}
 		]}
 	]
 endef
@@ -17,7 +21,7 @@ DEPS = \
 	toml \
 	jose
 
-dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git ac1669f8aff5fa22e36cd389260bbfe255b82ec7
+dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git 741655f532ad16bb501d01230c7fb68dbae523d2
 dep_toml = git https://github.com/dozzie/toml.git v0.3.0
 dep_jose = git https://github.com/manifest/jose-erlang v0.1.2
 
