@@ -221,10 +221,10 @@ handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId) ->
                     %% #message{payload=Payload, properties=Properties} = Message,
                     %% Changes =
                     %%     #{payload => Payload,
-                    %%       user_property => maps:get(p_user_property, Properties, [])},
+                    %%       properties => InputProperties},
                     Changes =
                         #{payload => envelope(Message),
-                          user_property => []},
+                          properties => InputProperties#{p_user_property => []}},
                     {ok, Changes};
                 Error ->
                     Error
@@ -433,13 +433,10 @@ handle_deliver_mqtt5(InputPayload, _InputProperties, ClientId) ->
 
 -spec handle_deliver_mqtt5_changes(connection_mode(), message()) -> ok | {ok, map()}.
 handle_deliver_mqtt5_changes(_Mode, Message) ->
-    #message{payload=Payload, properties=_Properties} = Message,
-    %% TODO: process 'correlation_data' and 'response_topic'
-    % Changes =
-    %     #{payload => Payload,
-    %       user_property => maps:get(p_user_property, Properties, [])},
+    #message{payload=Payload, properties=Properties} = Message,
     Changes =
-        #{payload => Payload},
+        #{payload => Payload,
+          properties => Properties},
     {ok, Changes}.
 
 %% =============================================================================
@@ -562,7 +559,7 @@ on_deliver(
 
 on_deliver_m5(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    _Topic, Properties, Payload) ->
+    _Topic, Payload, Properties) ->
     handle_deliver_mqtt5(Payload, Properties, parse_client_id(ClientId)).
 
 auth_on_subscribe(
@@ -934,7 +931,7 @@ prop_onpublish() ->
                 ExpectedCompatMessage3 =
                     envelope(#message{payload = Payload, properties = ExpectedProperties}),
                 ExpectedCompatMessage3 = maps:get(payload, Modifiers),
-                [] = maps:get(user_property, Modifiers)
+                [] = maps:get(p_user_property, maps:get(properties, Modifiers))
             end,
 
             %% MQTT 3
@@ -1041,7 +1038,7 @@ prop_ondeliver() ->
                 InputProperties = #{},
 
                 {ok, Modifiers} =
-                    on_deliver_m5(Username, SubscriberId, Topic, InputProperties, InputPayload),
+                    on_deliver_m5(Username, SubscriberId, Topic, InputPayload, InputProperties),
                 Payload = maps:get(payload, Modifiers)
             end,
 
