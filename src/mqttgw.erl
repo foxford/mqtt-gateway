@@ -615,16 +615,6 @@ validate_client_id(Val) ->
     Val.
 
 -spec parse_client_id(binary()) -> client_id().
-parse_client_id(<<"v1.mqtt3/agents/", R/bits>>) ->
-    parse_v1_agent_label(R, default, <<>>);
-parse_client_id(<<"v1.mqtt3.payload-only/service-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, service_payload_only, <<>>);
-parse_client_id(<<"v1.mqtt3/service-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, service, <<>>);
-parse_client_id(<<"v1.mqtt3/bridge-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, bridge, <<>>);
-%% TODO: remove everything above because we do not need
-%% a protocol within connection string
 parse_client_id(<<"v1/agents/", R/bits>>) ->
     parse_v1_agent_label(R, default, <<>>);
 parse_client_id(<<"v1.payload-only/service-agents/", R/bits>>) ->
@@ -743,11 +733,7 @@ version_mode_t() ->
             [{<<"v1">>, <<"agents">>},
              {<<"v1">>, <<"bridge-agents">>},
              {<<"v1">>, <<"service-agents">>},
-             {<<"v1.payload-only">>, <<"service-agents">>},
-             {<<"v1.mqtt3">>, <<"agents">>},
-             {<<"v1.mqtt3">>, <<"bridge-agents">>},
-             {<<"v1.mqtt3">>, <<"service-agents">>},
-             {<<"v1.mqtt3.payload-only">>, <<"service-agents">>}])).
+             {<<"v1.payload-only">>, <<"service-agents">>}])).
 
 client_id_t() ->
     ?LET(
@@ -865,7 +851,7 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
             {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, _Result} <- Test],
@@ -877,7 +863,7 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
             {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test],
@@ -887,7 +873,7 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1.mqtt3">>),
+                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
             {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test].
