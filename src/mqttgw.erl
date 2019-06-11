@@ -43,7 +43,7 @@
 -define(APP, ?MODULE).
 
 %% Types
--type connection_mode() :: default | service_payload_only | service | bridge.
+-type connection_mode() :: default | service_payload_only | service | observer | bridge.
 
 -record(client_id, {
     mode          :: connection_mode(),
@@ -364,7 +364,8 @@ to_mqtt5_properteies(Rest0, Acc0) ->
 %% Broadcast:
 %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
 verify_publish_topic([<<"apps">>, Me, <<"api">>, _ | _], Me, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service_payload_only) or (Mode =:= service)
+      or (Mode =:= observer) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
@@ -374,7 +375,8 @@ verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId,
 %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], Me, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service_payload_only) or (Mode =:= service)
+      or (Mode =:= observer) or (Mode =:= bridge)
     -> ok;
 %% Forbidding publishing to any other topics
 verify_publish_topic(Topic, _AccountId, AgentId, Mode)
@@ -496,6 +498,9 @@ verify_subscribtion(Topic, AccountId, AgentId, Mode) ->
     verify_subscribe_topic(Topic, AccountId, AgentId, Mode).
 
 -spec verify_subscribe_topic(topic(), binary(), binary(), connection_mode()) -> ok.
+%% Observer can subscribe to any topic
+verify_subscribe_topic(_Topic, _AccountId, _AgentId, observer)
+    -> ok;
 %% Broadcast:
 %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
 verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, _Mode)
@@ -621,6 +626,8 @@ parse_client_id(<<"v1.payload-only/service-agents/", R/bits>>) ->
     parse_v1_agent_label(R, service_payload_only, <<>>);
 parse_client_id(<<"v1/service-agents/", R/bits>>) ->
     parse_v1_agent_label(R, service, <<>>);
+parse_client_id(<<"v1/observer-agents/", R/bits>>) ->
+    parse_v1_agent_label(R, observer, <<>>);
 parse_client_id(<<"v1/bridge-agents/", R/bits>>) ->
     parse_v1_agent_label(R, bridge, <<>>);
 parse_client_id(R) ->
@@ -701,7 +708,9 @@ validate_envelope(Val) ->
     Val.
 
 -spec parse_envelope(connection_mode(), binary()) -> message().
-parse_envelope(Mode, Message) when (Mode =:= default) or (Mode =:= service) or (Mode =:= bridge) ->
+parse_envelope(Mode, Message)
+    when (Mode =:= default) or (Mode =:= service)
+      or (Mode =:= observer) or (Mode =:= bridge) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
@@ -732,6 +741,7 @@ version_mode_t() ->
         lists:nth(Index,
             [{<<"v1">>, <<"agents">>},
              {<<"v1">>, <<"bridge-agents">>},
+             {<<"v1">>, <<"observer-agents">>},
              {<<"v1">>, <<"service-agents">>},
              {<<"v1.payload-only">>, <<"service-agents">>}])).
 
@@ -835,10 +845,10 @@ authz_onconnect_test_() ->
           [default], UsrAud, UsrPassword,
           ok },
         { "usr: forbidden",
-          [service_payload_only, service, bridge], UsrAud, UsrPassword,
+          [service_payload_only, service, observer, bridge], UsrAud, UsrPassword,
           {error, #{reason_code => not_authorized}} },
         { "svc: allowed",
-          [default, service_payload_only, service, bridge], SvcAud, SvcPassword,
+          [default, service_payload_only, service, observer, bridge], SvcAud, SvcPassword,
           ok }
     ],
 
@@ -903,7 +913,7 @@ prop_onpublish() ->
             begin
                 {InputPayload, InputProperties} =
                     case Mode of
-                        M5 when (M5 =:= default) or (M5 =:= service) ->
+                        M5 when (M5 =:= default) or (M5 =:= service) or (M5 =:= observer) ->
                             {Payload, #{}};
                         bridge ->
                             {Payload, ExpectedAuthnProperties};
@@ -932,7 +942,7 @@ prop_onpublish() ->
                     envelope(#message{payload = Payload, properties = ExpectedProperties}),
                 InputMessage3 =
                     case Mode of
-                        M3 when (M3 =:= default) or (M3 =:= service) ->
+                        M3 when (M3 =:= default) or (M3 =:= service) or (M3 =:= observer) ->
                             envelope(make_sample_message(Mode, Payload));
                         bridge ->
                             envelope(make_sample_message(Mode, Payload, ExpectedAuthnProperties));
@@ -988,9 +998,9 @@ authz_onpublish_test_() ->
         {"usr: broadcast", Broadcast, [default], error},
         {"usr: multicast", Multicast, [default], ok},
         {"usr: unicast", Unicast, [default], error},
-        {"svc: broadcast", Broadcast, [service_payload_only, service, bridge], ok},
-        {"svc: multicast", Multicast, [service_payload_only, service, bridge], ok},
-        {"svc: unicast", Unicast, [service_payload_only, service, bridge], ok}
+        {"svc: broadcast", Broadcast, [service_payload_only, service, observer, bridge], ok},
+        {"svc: multicast", Multicast, [service_payload_only, service, observer, bridge], ok},
+        {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
     ],
 
     mqttgw_state:new(),
@@ -1040,6 +1050,7 @@ prop_ondeliver() ->
                     case Mode of
                         default              -> InputPayload;
                         bridge               -> InputPayload;
+                        observer             -> InputPayload;
                         service              -> InputPayload;
                         service_payload_only -> Payload
                     end,
@@ -1084,9 +1095,9 @@ authz_onsubscribe_test_() ->
         {"usr: broadcast", Broadcast, [default], ok}, %% <- TODO: should be forbidden
         {"usr: multicast", Multicast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: unicast", Unicast, [default], ok},
-        {"svc: broadcast", Broadcast, [service_payload_only, service, bridge], ok},
-        {"svc: multicast", Multicast, [service_payload_only, service, bridge], ok},
-        {"svc: unicast", Unicast, [service_payload_only, service, bridge], ok}
+        {"svc: broadcast", Broadcast, [service_payload_only, service, observer, bridge], ok},
+        {"svc: multicast", Multicast, [service_payload_only, service, observer, bridge], ok},
+        {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
     ],
 
     mqttgw_state:new(),
@@ -1147,6 +1158,7 @@ make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Versi
             default -> <<Version/binary, "/agents">>;
             service_payload_only -> <<Version/binary, ".payload-only/service-agents">>;
             service -> <<Version/binary, "/service-agents">>;
+            observer -> <<Version/binary, "/observer-agents">>;
             bridge -> <<Version/binary, "/bridge-agents">>
         end,
 
@@ -1171,6 +1183,8 @@ make_sample_message(Mode, Payload, Properties) ->
         service_payload_only ->
             #message{payload = Payload};
         service ->
+            #message{payload = Payload};
+        observer ->
             #message{payload = Payload};
         bridge ->
             #message{payload = Payload, properties = Properties};
