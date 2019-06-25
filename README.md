@@ -37,7 +37,7 @@ docker run -ti --rm \
 ## Subscribing to messages
 mosquitto_sub -h $(docker-machine ip) \
     -i 'v1/agents/test-sub.john-doe.usr.example.net' \
-    -t 'foo'
+    -t 'foo' | jq '.'
 
 ## Publishing a message
 mosquitto_pub -h $(docker-machine ip) \
