@@ -415,7 +415,14 @@ update_message_properties(Properties, ClientId) ->
                     <<"audience">> => Audience}
         end,
 
-    Properties#{p_user_property => maps:to_list(UserProperties2)}.
+    %% Additional connection properties
+    {VersionStr, ModeStr} = connection_versionmode(Mode),
+    UserProperties3 =
+        UserProperties2#{
+            <<"connection_version">> => VersionStr,
+            <<"connection_mode">> => ModeStr},
+
+    Properties#{p_user_property => maps:to_list(UserProperties3)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -724,6 +731,13 @@ validate_client_id(Val) ->
 
     Val.
 
+-spec connection_versionmode(connection_mode()) -> {binary(), binary()}.
+connection_versionmode(default)              -> {<<"v1">>, <<"agents">>};
+connection_versionmode(service_payload_only) -> {<<"v1.payload-only">>, <<"service-agents">>};
+connection_versionmode(service)              -> {<<"v1">>, <<"service-agents">>};
+connection_versionmode(observer)             -> {<<"v1">>, <<"observer-agents">>};
+connection_versionmode(bridge)               -> {<<"v1">>, <<"bridge-agents">>}.
+
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1/agents/", R/bits>>) ->
     parse_v1_agent_label(R, default, <<>>);
@@ -1006,12 +1020,16 @@ prop_onpublish() ->
                 agent_label=AgentLabel,
                 account_label=AccountLabel,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
+            {VersionStr, ModeStr} = connection_versionmode(Mode),
+            ExpectedConnectionL =
+                [ {<<"connection_version">>, VersionStr},
+                  {<<"connection_mode">>, ModeStr} ],
             ExpectedAuthnUserL =
                 [ {<<"agent_label">>, AgentLabel},
                   {<<"account_label">>, AccountLabel},
                   {<<"audience">>, Audience} ],
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
-            ExpectedUserL = [{<<"type">>, <<"event">>} | ExpectedAuthnUserL],
+            ExpectedUserL = [{<<"type">>, <<"event">>} | ExpectedAuthnUserL ++ ExpectedConnectionL],
             ExpectedProperties = #{p_user_property => ExpectedUserL},
 
             %% MQTT 5
@@ -1270,13 +1288,16 @@ make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Versi
     <<ModeLabel/binary, $/, AgentId/binary>>.
 
 make_sample_complete_message(Mode) ->
+    {VersionStr, ModeStr} = connection_versionmode(Mode),
     make_sample_message(
         Mode,
         <<"bar">>,
         #{p_user_property =>
             [ {<<"agent_label">>, <<"test-1">>},
               {<<"account_label">>, <<"john-doe">>},
-              {<<"audience">>, <<"example.org">>} ]}).
+              {<<"audience">>, <<"example.org">>},
+              {<<"connection_version">>, VersionStr},
+              {<<"connection_mode">>, ModeStr} ]}).
 
 make_sample_message(Mode, Payload) ->
     make_sample_message(Mode, Payload, #{}).
