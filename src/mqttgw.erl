@@ -248,8 +248,8 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             ok;
-        {ok, {enabled, _Me, _Config}} ->
-            handle_publish_authz_topic(Topic, Message, ClientId);
+        {ok, {enabled, Me, _Config}} ->
+            handle_publish_authz_topic(Topic, Message, Me, ClientId);
         _ ->
             error_logger:warning_msg(
                 "Error on publish: authz config isn't found for the agent = '~s'",
@@ -257,13 +257,15 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
             {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_authz_topic(topic(), message(), client_id()) -> ok | {error, error()}.
-handle_publish_authz_topic(Topic, _Message, ClientId) ->
+-spec handle_publish_authz_topic(topic(), message(), mqttgw_id:id(), client_id())
+    -> ok | {error, error()}.
+handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
-            ok
+            handle_publish_authz_broker_request(
+                Topic, Message, mqttgw_authn:format_account_id(BrokerId), ClientId)
     catch
         T:R ->
             error_logger:error_msg(
@@ -273,6 +275,109 @@ handle_publish_authz_topic(Topic, _Message, ClientId) ->
                 [Topic, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => not_authorized}}
     end.
+
+-spec handle_publish_authz_broker_request(topic(), message(), binary(), client_id())
+    -> ok | {error, error()}.
+handle_publish_authz_broker_request(
+    [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerId],
+    #message{payload = Payload, properties = Properties},
+    BrokerId, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
+        {service,
+         #{<<"object">> := Object,
+           <<"subject">> := Subject},
+         #{type := <<"request">>,
+           method := <<"subscription.create">>,
+           correlation_data := CorrelationData,
+           response_topic := ResponseTopic}} ->
+               handle_publish_authz_broker_subscription_request(
+                   Version, Object, Subject, CorrelationData, ResponseTopic, ClientId);
+        _ ->
+            error_logger:error_msg(
+                "Error on publish: unsupported broker request = ~p with properties = ~p "
+                "from the agent = '~s' using mode = '~s', ",
+                [Payload, Properties, agent_id(ClientId), Mode]),
+            {error, #{reason_code => impl_specific_error}}
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: an invalid broker request = ~p with properties = ~p "
+                "from the agent = '~s' using mode = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [Payload, Properties, agent_id(ClientId), Mode, T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end;
+handle_publish_authz_broker_request(_Topic, _Message, _BrokerId, _ClientId) ->
+    ok.
+
+-spec handle_publish_authz_broker_subscription_request(
+    binary(), [binary()], binary(), binary(), binary(), client_id())
+    -> ok | {error, error()}.
+handle_publish_authz_broker_subscription_request(
+    Version, Object, Subject, CorrelationData, ResponseTopic, ClientId) ->
+    #client_id{
+        account_label=AccountLabel,
+        audience=Audience} = ClientId,
+    App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
+    %% Subscribe agent to app's topic and send success response to agent
+    create_authz_subscription(App, Version, Object, Subject),
+    send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId),
+    ok.
+
+-spec create_authz_subscription(binary(), binary(), [binary()], binary()) -> ok.
+create_authz_subscription(App, Version, Object, Subject) ->
+    Topic = [<<"apps">>, App, <<"api">>, Version | Object],
+    QoS = 1,
+
+    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]).
+
+-spec send_authz_subscription_success_response(binary(), binary(), binary(), client_id()) -> ok.
+send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    QoS = 1,
+    try mqttgw_broker:publish(
+        validate_broker_response_topic(binary:split(ResponseTopic, <<$/>>, [global]), App),
+        envelope(
+            #message{
+                payload = jsx:encode(#{}),
+                properties = update_message_properties(
+                    #{status => 200,
+                      p_correlation_data => CorrelationData,
+                      p_user_property => [{<<"type">>, <<"response">>}]},
+                    ClientId)}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending subscription success response to = '~s' "
+                "from the agent = '~s' using mode = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [ResponseTopic, agent_id(ClientId), Mode, T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec validate_broker_response_topic(topic(), binary()) -> topic().
+validate_broker_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
+    Topic;
+validate_broker_response_topic(Topic, App) ->
+    error({nomatch_app_in_broker_response_topic, Topic, App}).
+
+-spec parse_broker_request_properties(map()) -> map().
+parse_broker_request_properties(Properties) ->
+    #{p_user_property := UserProperties,
+      p_correlation_data := CorrelationData,
+      p_response_topic := ResponseTopic} = Properties,
+    {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
+    {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
+    #{type => Type,
+      method => Method,
+      correlation_data => CorrelationData,
+      response_topic => ResponseTopic}.
 
 -spec handle_message_properties(message(), client_id()) -> message().
 handle_message_properties(Message, ClientId) ->
@@ -1004,7 +1109,7 @@ authz_onpublish_test_() ->
     ],
 
     mqttgw_state:new(),
-    mqttgw_state:put(authz, {enabled, ignore, ignore}),
+    mqttgw_state:put(authz, {enabled, maps:get(me, make_sample_me(<<"aud">>, [])), ignore}),
     [begin
         [begin
             Message = make_sample_complete_message(Mode),
