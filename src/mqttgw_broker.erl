@@ -3,6 +3,7 @@
 %% API
 -export([
     subscribe/2,
+    unsubscribe/2,
     publish/3
 ]).
 
@@ -18,6 +19,12 @@ subscribe(ClientId, Topics) ->
     wait_til_ready(),
     CAPSubscribe = vmq_config:get_env(allow_subscribe_during_netsplit, false),
     vmq_reg:subscribe(CAPSubscribe, {"", ClientId}, Topics),
+    ok.
+
+unsubscribe(ClientId, Topics) ->
+    wait_til_ready(),
+    CAPSubscribe = vmq_config:get_env(allow_subscribe_during_netsplit, false),
+    vmq_reg:unsubscribe(CAPSubscribe, {"", ClientId}, Topics),
     ok.
 
 publish(Topic, Payload, QoS) ->

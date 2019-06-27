@@ -117,6 +117,15 @@ APP='app.svc.example.org' \
         -i "v1/service-agents/test.${APP}" \
         -t "apps/${APP}/api/v1/rooms/ROOM_ID/events" \
         -m '{"payload": "{}", "properties": {"label": "room.create"}}'
+
+## Deleting the dynamic subscription
+APP='app.svc.example.org' \
+USER='john.usr.example.net' \
+BROKER='mqtt-gateway.svc.example.org' \
+    && mosquitto_pub -h $(docker-machine ip) \
+        -i "v1/service-agents/test.${APP}" \
+        -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+        -m '{"payload": "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.'${USER}'\"}", "properties": {"type": "request", "method": "subscription.delete", "response_topic": "agents/test.'${USER}'/api/v1/in/'${APP}'", "correlation_data": "foobar"}}'
 ```
 
 ```erlang

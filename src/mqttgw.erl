@@ -292,7 +292,16 @@ handle_publish_authz_broker_request(
            method := <<"subscription.create">>,
            correlation_data := CorrelationData,
            response_topic := ResponseTopic}} ->
-               handle_publish_authz_broker_subscription_request(
+               handle_publish_authz_broker_subscription_create_request(
+                   Version, Object, Subject, CorrelationData, ResponseTopic, ClientId);
+        {service,
+         #{<<"object">> := Object,
+           <<"subject">> := Subject},
+         #{type := <<"request">>,
+           method := <<"subscription.delete">>,
+           correlation_data := CorrelationData,
+           response_topic := ResponseTopic}} ->
+               handle_publish_authz_broker_subscription_delete_request(
                    Version, Object, Subject, CorrelationData, ResponseTopic, ClientId);
         _ ->
             error_logger:error_msg(
@@ -312,10 +321,10 @@ handle_publish_authz_broker_request(
 handle_publish_authz_broker_request(_Topic, _Message, _BrokerId, _ClientId) ->
     ok.
 
--spec handle_publish_authz_broker_subscription_request(
+-spec handle_publish_authz_broker_subscription_create_request(
     binary(), [binary()], binary(), binary(), binary(), client_id())
     -> ok | {error, error()}.
-handle_publish_authz_broker_subscription_request(
+handle_publish_authz_broker_subscription_create_request(
     Version, Object, Subject, CorrelationData, ResponseTopic, ClientId) ->
     #client_id{
         account_label=AccountLabel,
@@ -326,12 +335,34 @@ handle_publish_authz_broker_subscription_request(
     send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId),
     ok.
 
+-spec handle_publish_authz_broker_subscription_delete_request(
+    binary(), [binary()], binary(), binary(), binary(), client_id())
+    -> ok | {error, error()}.
+handle_publish_authz_broker_subscription_delete_request(
+    Version, Object, Subject, CorrelationData, ResponseTopic, ClientId) ->
+    #client_id{
+        account_label=AccountLabel,
+        audience=Audience} = ClientId,
+    App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
+    %% Subscribe agent to app's topic and send success response to agent
+    delete_authz_subscription(App, Version, Object, Subject),
+    send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId),
+    ok.
+
+-spec authz_subscription_topic(binary(), binary(), [binary()]) -> topic().
+authz_subscription_topic(App, Version, Object) ->
+    [<<"apps">>, App, <<"api">>, Version | Object].
+
 -spec create_authz_subscription(binary(), binary(), [binary()], binary()) -> ok.
 create_authz_subscription(App, Version, Object, Subject) ->
-    Topic = [<<"apps">>, App, <<"api">>, Version | Object],
+    Topic = authz_subscription_topic(App, Version, Object),
     QoS = 1,
-
     mqttgw_broker:subscribe(Subject, [{Topic, QoS}]).
+
+-spec delete_authz_subscription(binary(), binary(), [binary()], binary()) -> ok.
+delete_authz_subscription(App, Version, Object, Subject) ->
+    Topic = authz_subscription_topic(App, Version, Object),
+    mqttgw_broker:unsubscribe(Subject, [Topic]).
 
 -spec send_authz_subscription_success_response(binary(), binary(), binary(), client_id()) -> ok.
 send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId) ->
