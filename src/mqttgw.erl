@@ -458,7 +458,7 @@ update_message_properties(Properties, ClientId) ->
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
     Message#message{
-        properties = to_mqtt5_properteies(Message#message.properties, #{})}.
+        properties = to_mqtt5_properties(Message#message.properties, #{})}.
 
 -spec to_mqtt3_envelope_properties(map(), map()) -> map().
 to_mqtt3_envelope_properties(Properties, Acc0) ->
@@ -482,8 +482,8 @@ to_mqtt3_envelope_properties(Properties, Acc0) ->
 
     Acc3.
 
--spec to_mqtt5_properteies(map(), map()) -> map().
-to_mqtt5_properteies(Rest0, Acc0) ->
+-spec to_mqtt5_properties(map(), map()) -> map().
+to_mqtt5_properties(Rest0, Acc0) ->
     {Rest1, Acc1} =
         case maps:take(<<"response_topic">>, Rest0) of
             {ResponseTopic, M1} -> {M1, Acc0#{p_response_topic => ResponseTopic}};
@@ -496,12 +496,15 @@ to_mqtt5_properteies(Rest0, Acc0) ->
             error -> {Rest1, Acc1}
         end,
 
-    Acc2#{
-        p_user_property =>
-            maps:to_list(
-                maps:merge(
-                    maps:get(p_user_property, Acc2, #{}),
-                    Rest2))}.
+    UserProperties =
+        maps:to_list(
+            maps:merge(
+                maps:from_list(maps:get(p_user_property, Acc2, [])),
+                Rest2)),
+    case length(UserProperties) of
+        0 -> Acc2;
+        _ -> Acc2#{p_user_property => UserProperties}
+    end.
 
 -spec verify_publish_topic(topic(), binary(), binary(), connection_mode()) -> ok.
 %% Broadcast:
