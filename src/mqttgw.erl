@@ -858,6 +858,7 @@ validate_envelope(Val) ->
 
     true = is_binary(Payload),
     true = is_map(Properties),
+    true = lists:all(fun({_, V}) -> is_binary(V) end, maps:to_list(Properties)),
     Val.
 
 -spec parse_envelope(connection_mode(), binary()) -> message().
