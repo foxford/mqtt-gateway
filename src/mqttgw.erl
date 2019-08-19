@@ -375,9 +375,8 @@ send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, Cl
             #message{
                 payload = jsx:encode(#{}),
                 properties = update_message_properties(
-                    #{status => 200,
-                      p_correlation_data => CorrelationData,
-                      p_user_property => [{<<"type">>, <<"response">>}]},
+                    #{p_correlation_data => CorrelationData,
+                      p_user_property => [{<<"type">>, <<"response">>}, {<<"status">>, <<"200">>}]},
                     ClientId)}),
         QoS) of
         _ ->
