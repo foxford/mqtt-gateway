@@ -374,10 +374,17 @@ send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, Cl
         envelope(
             #message{
                 payload = jsx:encode(#{}),
-                properties = validate_message_properties(update_message_properties(
-                    #{p_correlation_data => CorrelationData,
-                      p_user_property => [{<<"type">>, <<"response">>}, {<<"status">>, <<"200">>}]},
-                    ClientId))}),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_correlation_data => CorrelationData,
+                              p_user_property =>
+                                [ {<<"type">>, <<"response">>},
+                                  {<<"status">>, <<"200">>} ]},
+                            ClientId
+                        ),
+                        ClientId
+                    )}),
         QoS) of
         _ ->
             ok
@@ -413,13 +420,14 @@ parse_broker_request_properties(Properties) ->
 handle_message_properties(Message, ClientId) ->
     UpdatedProperties =
         validate_message_properties(
-            update_message_properties(Message#message.properties, ClientId)),
+            update_message_properties(Message#message.properties, ClientId), ClientId),
 
     Message#message{
         properties = UpdatedProperties}.
 
--spec validate_message_properties(map()) -> map().
-validate_message_properties(Properties) ->
+-spec validate_message_properties(map(), client_id()) -> map().
+validate_message_properties(Properties, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
     UserProperties = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Type of the value for user property is always an utf8 string
@@ -438,13 +446,16 @@ validate_message_properties(Properties) ->
             %% - p_response_topic
             case
                 { maps:find(<<"method">>, UserProperties),
-                    maps:find(p_correlation_data, Properties),
-                    maps:find(p_response_topic, Properties) } of
+                  maps:find(p_correlation_data, Properties),
+                  maps:find(p_response_topic, Properties) } of
 
                 {error, _, _} -> error({missing_method_user_property, Properties});
                 {_, error, _} -> error({missing_correlation_data_property, Properties});
                 {_, _, error} -> error({missing_response_topic_property, Properties});
-                _ -> ok
+                %% Only services can specify a response topic that is not assosiated
+                %% with their account
+                {_, _, {ok,  _}} when Mode =:= service -> ok;
+                {_, _, {ok, RT}} -> verify_response_topic(RT, agent_id(ClientId))
             end;
         {ok, <<"response">>} ->
             %% Rrequired properties:
@@ -452,7 +463,7 @@ validate_message_properties(Properties) ->
             %% - p_correlation_data
             case
                 { maps:find(<<"status">>, UserProperties),
-                    maps:find(p_correlation_data, Properties) } of
+                  maps:find(p_correlation_data, Properties) } of
 
                 {error, _} -> error({missing_status_user_property, Properties});
                 {_, error} -> error({missing_correlation_data_property, Properties});
@@ -463,6 +474,12 @@ validate_message_properties(Properties) ->
     end,
 
     Properties.
+
+-spec verify_response_topic(topic(), binary()) -> ok.
+verify_response_topic([<<"agents">>, Me, <<"api">>, _, <<"in">>, _], Me) ->
+    ok;
+verify_response_topic(Topic, AgentId) ->
+    error({bad_response_topic, Topic, AgentId}).
 
 -spec update_message_properties(map(), client_id()) -> map().
 update_message_properties(Properties, ClientId) ->
