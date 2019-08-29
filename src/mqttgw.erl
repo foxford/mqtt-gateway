@@ -374,10 +374,10 @@ send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, Cl
         envelope(
             #message{
                 payload = jsx:encode(#{}),
-                properties = update_message_properties(
+                properties = validate_message_properties(update_message_properties(
                     #{p_correlation_data => CorrelationData,
                       p_user_property => [{<<"type">>, <<"response">>}, {<<"status">>, <<"200">>}]},
-                    ClientId)}),
+                    ClientId))}),
         QoS) of
         _ ->
             ok
@@ -411,8 +411,50 @@ parse_broker_request_properties(Properties) ->
 
 -spec handle_message_properties(message(), client_id()) -> message().
 handle_message_properties(Message, ClientId) ->
+    UpdatedProperties =
+        validate_message_properties(
+            update_message_properties(Message#message.properties, ClientId)),
+
     Message#message{
-        properties = update_message_properties(Message#message.properties, ClientId)}.
+        properties = UpdatedProperties}.
+
+-spec validate_message_properties(map()) -> map().
+validate_message_properties(Properties) ->
+    UserProperties = maps:from_list(maps:get(p_user_property, Properties, [])),
+    _ =
+        case maps:find(<<"type">>, UserProperties) of
+            {ok, <<"request">>} ->
+                %% Rrequired properties:
+                %% - p_user_property(method)
+                %% - p_correlation_data
+                %% - p_response_topic
+                case
+                    { maps:find(<<"method">>, UserProperties),
+                      maps:find(p_correlation_data, Properties),
+                      maps:find(p_response_topic, Properties) } of
+
+                    {error, _, _} -> error({missing_method_user_property, Properties});
+                    {_, error, _} -> error({missing_correlation_data_property, Properties});
+                    {_, _, error} -> error({missing_response_topic_property, Properties});
+                    _ -> ok
+                end;
+            {ok, <<"response">>} ->
+                %% Rrequired properties:
+                %% - p_user_property(status)
+                %% - p_correlation_data
+                case
+                    { maps:find(<<"status">>, UserProperties),
+                      maps:find(p_correlation_data, Properties) } of
+
+                    {error, _} -> error({missing_status_user_property, Properties});
+                    {_, error} -> error({missing_correlation_data_property, Properties});
+                    _ -> ok
+                end;
+            _ ->
+                ok
+        end,
+
+    Properties.
 
 -spec update_message_properties(map(), client_id()) -> map().
 update_message_properties(Properties, ClientId) ->
