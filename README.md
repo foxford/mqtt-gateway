@@ -130,7 +130,7 @@ BROKER='mqtt-gateway.svc.example.org' \
 
 ```erlang
 %% We can verify receiving the event on newly created subscription using MQTT client
-{ok, C} = emqx_client:start_link([{host, {192,168,99,100}}, {port, 1883}, {client_id, <<"v1/agents/test.john.usr.example.net">>}]),
+{ok, C} = emqx_client:start_link([{host, {192,168,99,100}}, {port, 1883}, {proto_ver, v5}, {client_id, <<"v1/agents/test.john.usr.example.net">>}]),
 emqx_client:connect(C).
 
 flush().
