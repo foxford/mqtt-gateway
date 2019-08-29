@@ -421,38 +421,46 @@ handle_message_properties(Message, ClientId) ->
 -spec validate_message_properties(map()) -> map().
 validate_message_properties(Properties) ->
     UserProperties = maps:from_list(maps:get(p_user_property, Properties, [])),
-    _ =
-        case maps:find(<<"type">>, UserProperties) of
-            {ok, <<"request">>} ->
-                %% Rrequired properties:
-                %% - p_user_property(method)
-                %% - p_correlation_data
-                %% - p_response_topic
-                case
-                    { maps:find(<<"method">>, UserProperties),
-                      maps:find(p_correlation_data, Properties),
-                      maps:find(p_response_topic, Properties) } of
 
-                    {error, _, _} -> error({missing_method_user_property, Properties});
-                    {_, error, _} -> error({missing_correlation_data_property, Properties});
-                    {_, _, error} -> error({missing_response_topic_property, Properties});
-                    _ -> ok
-                end;
-            {ok, <<"response">>} ->
-                %% Rrequired properties:
-                %% - p_user_property(status)
-                %% - p_correlation_data
-                case
-                    { maps:find(<<"status">>, UserProperties),
-                      maps:find(p_correlation_data, Properties) } of
+    %% Type of the value for user property is always an utf8 string
+    %% NOTE: we validate that a property is being any binary.
+    case lists:all(fun erlang:is_binary/1, maps:values(UserProperties)) of
+        false -> error({bad_user_property, Properties});
+        _ -> ok
+    end,
 
-                    {error, _} -> error({missing_status_user_property, Properties});
-                    {_, error} -> error({missing_correlation_data_property, Properties});
-                    _ -> ok
-                end;
-            _ ->
-                ok
-        end,
+    %% Required properties for p_user_property(type)=request|response
+    case maps:find(<<"type">>, UserProperties) of
+        {ok, <<"request">>} ->
+            %% Rrequired properties:
+            %% - p_user_property(method)
+            %% - p_correlation_data
+            %% - p_response_topic
+            case
+                { maps:find(<<"method">>, UserProperties),
+                    maps:find(p_correlation_data, Properties),
+                    maps:find(p_response_topic, Properties) } of
+
+                {error, _, _} -> error({missing_method_user_property, Properties});
+                {_, error, _} -> error({missing_correlation_data_property, Properties});
+                {_, _, error} -> error({missing_response_topic_property, Properties});
+                _ -> ok
+            end;
+        {ok, <<"response">>} ->
+            %% Rrequired properties:
+            %% - p_user_property(status)
+            %% - p_correlation_data
+            case
+                { maps:find(<<"status">>, UserProperties),
+                    maps:find(p_correlation_data, Properties) } of
+
+                {error, _} -> error({missing_status_user_property, Properties});
+                {_, error} -> error({missing_correlation_data_property, Properties});
+                _ -> ok
+            end;
+        _ ->
+            ok
+    end,
 
     Properties.
 
