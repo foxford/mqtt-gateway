@@ -431,8 +431,13 @@ validate_message_properties(Properties, ClientId) ->
     UserProperties = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Type of the value for user property is always an utf8 string
-    %% NOTE: we validate that a property is being any binary.
-    case lists:all(fun erlang:is_binary/1, maps:values(UserProperties)) of
+    IsUtf8String = fun(Val) ->
+        is_binary(catch unicode:characters_to_binary(Val, utf8, utf8))
+    end,
+    IsUtf8Pair = fun({Key, Val}, Acc) ->
+        IsUtf8String(Key) andalso IsUtf8String(Val) andalso Acc
+    end,
+    case lists:foldl(IsUtf8Pair, true, maps:to_list(UserProperties)) of
         false -> error({bad_user_property, Properties});
         _ -> ok
     end,
@@ -1166,9 +1171,11 @@ prop_onpublish() ->
                 InputMessage3 =
                     case Mode of
                         M3 when (M3 =:= default) or (M3 =:= service) or (M3 =:= observer) ->
-                            envelope(make_sample_message(Mode, Payload));
+                            envelope(make_sample_message_bridgepropsonly(
+                                Mode, Payload));
                         bridge ->
-                            envelope(make_sample_message(Mode, Payload, ExpectedAuthnProperties));
+                            envelope(make_sample_message_bridgepropsonly(
+                                Mode, Payload, ExpectedAuthnProperties));
                         service_payload_only ->
                             Payload
                     end,
@@ -1230,7 +1237,7 @@ authz_onpublish_test_() ->
     mqttgw_state:put(authz, {enabled, maps:get(me, make_sample_me(<<"aud">>, [])), ignore}),
     [begin
         [begin
-            Message = make_sample_complete_message(Mode),
+            Message = make_sample_message_bridgecompat(Mode),
             ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
             Result =
                 case handle_publish_authz(TopicFn(ClientId), Message, ClientId) of
@@ -1240,6 +1247,88 @@ authz_onpublish_test_() ->
             {Desc, ?_assertEqual(Expect, Result)}
         end || Mode <- Modes]
     end || {Desc, TopicFn, Modes, Expect} <- Test].
+
+message_properties_test_() ->
+    ClientId = fun(Mode) ->
+        make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
+    end,
+    ResponseTopic = fun() ->
+        [ <<"agents">>, agent_id(ClientId(default)),
+          <<"api">>, <<"v1">>, <<"in">>, <<"bar.aud.example.org">> ]
+    end,
+    BadResponseTopic = fun() ->
+        [<<"agents">>, <<>>, <<"api">>, <<"v1">>, <<"in">>, <<"bar.aud.example.org">>]
+    end,
+
+    AnyMode = [default, service, service_payload_only, observer, bridge],
+    ServiceMode = [service],
+    NonServiceMode = AnyMode -- ServiceMode,
+
+    Test = [
+        { "type: no",
+          AnyMode,
+          #{},
+          ok },
+        { "type: any",
+          AnyMode,
+          #{p_user_property => [{<<"type">>, <<"any">>}]},
+          ok },
+        { "type: request, no method",
+          AnyMode,
+          #{p_user_property => [{<<"type">>, <<"request">>}]},
+          error },
+        { "type: request, no correlation_data",
+          AnyMode,
+          #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}]},
+          error },
+        { "type: request, no response_topic",
+          AnyMode,
+          #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
+            p_correlation_data => <<>>},
+          error },
+        { "type: request, no response_topic",
+          AnyMode,
+          #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
+            p_correlation_data => <<>>,
+            p_response_topic => ResponseTopic()},
+          ok },
+        { "type: request, bad response_topic",
+          ServiceMode,
+          #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
+            p_correlation_data => <<>>,
+            p_response_topic => BadResponseTopic()},
+          ok },
+        { "type: request, bad response_topic",
+            NonServiceMode,
+            #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
+              p_correlation_data => <<>>,
+              p_response_topic => BadResponseTopic()},
+          error },
+        { "user property key: number",
+          AnyMode, #{p_user_property => [{1, <<"num">>}]},
+          error },
+        { "user property value: number",
+          AnyMode,
+          #{p_user_property => [{<<"num">>, 1}]},
+          error }
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
+    [begin
+        [begin
+            Message = make_sample_message_bridgecompat(Mode, <<>>, Props),
+            Result =
+                try handle_message_properties(Message, ClientId(Mode)) of
+                    _ ->
+                        ok
+                catch
+                    _:_ ->
+                        error
+                end,
+            {Desc, ?_assertEqual(Expect, Result)}
+        end || Mode <- Modes]
+    end || {Desc, Modes, Props, Expect} <- Test].
 
 prop_ondeliver() ->
     ?FORALL(
@@ -1387,33 +1476,51 @@ make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Versi
 
     <<ModeLabel/binary, $/, AgentId/binary>>.
 
-make_sample_complete_message(Mode) ->
-    {VersionStr, ModeStr} = connection_versionmode(Mode),
-    make_sample_message(
-        Mode,
-        <<"bar">>,
-        #{p_user_property =>
-            [ {<<"agent_label">>, <<"test-1">>},
-              {<<"account_label">>, <<"john-doe">>},
-              {<<"audience">>, <<"example.org">>},
-              {<<"connection_version">>, VersionStr},
-              {<<"connection_mode">>, ModeStr} ]}).
+make_sample_message_bridgecompat(Mode) ->
+    make_sample_message_bridgecompat(Mode, <<>>, #{}).
 
-make_sample_message(Mode, Payload) ->
-    make_sample_message(Mode, Payload, #{}).
-
-make_sample_message(Mode, Payload, Properties) ->
+make_sample_message_bridgecompat(Mode, Payload, Properties) ->
     case Mode of
-        default ->
-            #message{payload = Payload};
-        service_payload_only ->
-            #message{payload = Payload};
-        service ->
-            #message{payload = Payload};
-        observer ->
-            #message{payload = Payload};
+        Mode when
+            (Mode =:= default) or (Mode =:= service_payload_only) or (Mode =:= service) or
+            (Mode =:= observer) ->
+            #message{
+                payload = Payload,
+                properties = Properties};
         bridge ->
-            #message{payload = Payload, properties = Properties};
+            #message
+                {payload = Payload,
+                properties = update_sample_message_properties(Mode, Properties)};
+        _ ->
+            error({bad_mode, Mode})
+    end.
+
+update_sample_message_properties(Mode, Properties) ->
+    {VersionStr, ModeStr} = connection_versionmode(Mode),
+    DefaultSampleUserProperties =
+        #{ <<"agent_label">> => <<"test-1">>,
+           <<"account_label">> => <<"john-doe">>,
+           <<"audience">> => <<"example.org">>},
+
+    UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
+    UserProperties1 = maps:merge(DefaultSampleUserProperties, UserProperties0),
+    Properties#{p_user_property => maps:to_list(UserProperties1)}.
+
+
+make_sample_message_bridgepropsonly(Mode, Payload) ->
+    make_sample_message_bridgepropsonly(Mode, Payload, #{}).
+
+make_sample_message_bridgepropsonly(Mode, Payload, Properties) ->
+    case Mode of
+        Mode when
+            (Mode =:= default) or (Mode =:= service_payload_only) or (Mode =:= service) or
+            (Mode =:= observer) ->
+            #message{
+                payload = Payload};
+        bridge ->
+            #message{
+                payload = Payload,
+                properties = Properties};
         _ ->
             error({bad_mode, Mode})
     end.
