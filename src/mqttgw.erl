@@ -720,9 +720,8 @@ verify_subscribe_topic(_Topic, _AccountId, _AgentId, observer)
     -> ok;
 %% Broadcast:
 %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
-verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, _Mode)
-    %% TODO: in 'default' mode the app should be asked for permissions
-    %% when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
+verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, Mode)
+    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
@@ -1404,7 +1403,7 @@ authz_onsubscribe_test_() ->
     end,
 
     Test = [
-        {"usr: broadcast", Broadcast, [default], ok}, %% <- TODO: should be forbidden
+        {"usr: broadcast", Broadcast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: multicast", Multicast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: unicast", Unicast, [default], ok},
         {"svc: broadcast", Broadcast, [service_payload_only, service, observer, bridge], ok},
