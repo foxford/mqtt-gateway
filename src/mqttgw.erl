@@ -459,8 +459,10 @@ validate_message_properties(Properties, ClientId) ->
                 {_, _, error} -> error({missing_response_topic_property, Properties});
                 %% Only services can specify a response topic that is not assosiated
                 %% with their account
-                {_, _, {ok,  _}} when Mode =:= service -> ok;
-                {_, _, {ok, RT}} -> verify_response_topic(RT, agent_id(ClientId))
+                {_, _, {ok,  _}} when Mode =:= service ->
+                    ok;
+                {_, _, {ok, RT}} ->
+                    verify_response_topic(binary:split(RT, <<$/>>, [global]), agent_id(ClientId))
             end;
         {ok, <<"response">>} ->
             %% Rrequired properties:
