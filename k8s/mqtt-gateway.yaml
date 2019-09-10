@@ -28,36 +28,40 @@ spec:
               name: mqtt
             - containerPort: 8080
               name: http
-           env:
-             - name: MY_POD_NAME
-               valueFrom:
-                 fieldRef:
-                   fieldPath: metadata.name
-             - name: APP_CONFIG
-               valueFrom:
-                 configMapKeyRef:
-                   name: mqtt-gateway-environment
-                   key: APP_CONFIG
-             - name: APP_AUTHN_ENABLED
-               valueFrom:
-                 configMapKeyRef:
-                   name: mqtt-gateway-environment
-                   key: APP_AUTHN_ENABLED
-             - name: APP_AUTHZ_ENABLED
-               valueFrom:
-                 configMapKeyRef:
-                   name: mqtt-gateway-environment
-                   key: APP_AUTHZ_ENABLED
-             - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
-               valueFrom:
-                 configMapKeyRef:
-                   name: mqtt-gateway-environment
-                   key: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
-             - name: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
-               valueFrom:
-                 configMapKeyRef:
-                   name: mqtt-gateway-environment
-                   key: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
+          env:
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: APP_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_CONFIG
+            - name: APP_AUTHN_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_AUTHN_ENABLED
+            - name: APP_AUTHZ_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_AUTHZ_ENABLED
+            - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+            - name: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
           volumeMounts:
             - name: config
               mountPath: /vernemq/etc/vernemq.conf

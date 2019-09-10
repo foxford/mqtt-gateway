@@ -144,14 +144,14 @@ handle_connect_authz_config(ClientId, AccountId) ->
 
 -spec handle_connect_authz(
     connection_mode(), client_id(), mqttgw_authn:account_id(),
-    mqttgw_id:id(), mqttgw_authz:config())
+    mqttgw_id:agent_id(), mqttgw_authz:config())
     -> ok | {error, error()}.
 handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
     handle_connect_success(ClientId);
 handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
     #client_id{mode=Mode} = ClientId,
 
-    try mqttgw_authz:authorize(maps:get(audience, Me), AccountId, Config) of
+    try mqttgw_authz:authorize(mqttgw_id:audience(Me), AccountId, Config) of
         _ ->
             handle_connect_success(ClientId)
     catch
@@ -257,7 +257,7 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
             {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_authz_topic(topic(), message(), mqttgw_id:id(), client_id())
+-spec handle_publish_authz_topic(topic(), message(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
@@ -265,7 +265,7 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
             handle_publish_authz_broker_request(
-                Topic, Message, mqttgw_authn:format_account_id(BrokerId), ClientId)
+                Topic, Message, mqttgw_authn:format_account_id(mqttgw_id:account_id(BrokerId)), ClientId)
     catch
         T:R ->
             error_logger:error_msg(
@@ -587,6 +587,7 @@ verify_publish_topic([<<"apps">>, Me, <<"api">>, _ | _], Me, _AgentId, Mode)
     -> ok;
 %% Multicast:
 %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
+%% -> event(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
 verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId, Me, _Mode)
     -> ok;
 %% Unicast:
@@ -1211,6 +1212,7 @@ authz_onpublish_test_() ->
     %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
     %% Multicast:
     %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
+    %% -> event(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
     %% Unicast:
     %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
     %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
@@ -1446,7 +1448,7 @@ make_sample_password(AccountLabel, Audience, Issuer) ->
       config => Config}.
 
 make_sample_me(MeAud, Trusted) ->
-    Me = #{label => <<"mqtt-gateway">>, audience => MeAud},
+    Me = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => MeAud}},
     Config =
         #{MeAud =>
           #{type => trusted,
