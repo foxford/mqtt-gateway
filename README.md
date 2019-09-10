@@ -102,6 +102,13 @@ APP='app.svc.example.org' \
         -i "v1/observer-agents/test-1.${OBSERVER}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
 
+## Subscribing to the topic of app's incoming multicast messages
+OBSERVER='devops.svc.example.org' \
+APP='app.svc.example.org' \
+    && mosquitto_sub -h $(docker-machine ip) \
+        -i "v1/observer-agents/test-1.${OBSERVER}" \
+        -t "agents/+/api/v1/out/${APP}" | jq '.'
+
 ## Creating a dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
