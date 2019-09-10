@@ -4,6 +4,7 @@
 -export([
     read_config/1,
     account_id/1,
+    account_label/1,
     audience/1,
     label/1,
     format_agent_id/1
@@ -32,6 +33,10 @@ read_config(TomlConfig) ->
 -spec account_id(agent_id()) -> mqttgw_authn:account_id().
 account_id(AgentId) ->
     maps:get(account_id, AgentId).
+
+-spec account_label(agent_id()) -> binary().
+account_label(AgentId) ->
+    maps:get(label, maps:get(account_id, AgentId)).
 
 -spec audience(agent_id()) -> binary().
 audience(AgentId) ->

@@ -264,8 +264,8 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
-            handle_publish_authz_broker_request(
-                Topic, Message, mqttgw_authn:format_account_id(mqttgw_id:account_id(BrokerId)), ClientId)
+            BrokerAccountId = mqttgw_authn:format_account_id(mqttgw_id:account_id(BrokerId)),
+            handle_publish_authz_broker_request(Topic, Message, BrokerAccountId, BrokerId, ClientId)
     catch
         T:R ->
             error_logger:error_msg(
@@ -276,12 +276,13 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
             {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_authz_broker_request(topic(), message(), binary(), client_id())
+-spec handle_publish_authz_broker_request(
+    topic(), message(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_request(
-    [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerId],
+    [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
     #message{payload = Payload, properties = Properties},
-    BrokerId, ClientId) ->
+    BrokerAccoundId, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
@@ -290,19 +291,19 @@ handle_publish_authz_broker_request(
            <<"subject">> := Subject},
          #{type := <<"request">>,
            method := <<"subscription.create">>,
-           correlation_data := CorrelationData,
-           response_topic := ResponseTopic}} ->
+           correlation_data := CorrData,
+           response_topic := RespTopic}} ->
                handle_publish_authz_broker_subscription_create_request(
-                   Version, Object, Subject, CorrelationData, ResponseTopic, ClientId);
+                   Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId);
         {service,
          #{<<"object">> := Object,
            <<"subject">> := Subject},
          #{type := <<"request">>,
            method := <<"subscription.delete">>,
-           correlation_data := CorrelationData,
-           response_topic := ResponseTopic}} ->
+           correlation_data := CorrData,
+           response_topic := RespTopic}} ->
                handle_publish_authz_broker_subscription_delete_request(
-                   Version, Object, Subject, CorrelationData, ResponseTopic, ClientId);
+                   Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId);
         _ ->
             error_logger:error_msg(
                 "Error on publish: unsupported broker request = ~p with properties = ~p "
@@ -318,35 +319,42 @@ handle_publish_authz_broker_request(
                 [Payload, Properties, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end;
-handle_publish_authz_broker_request(_Topic, _Message, _BrokerId, _ClientId) ->
+handle_publish_authz_broker_request(_Topic, _Message, _BrokerAccoundId, _BrokerId, _ClientId) ->
     ok.
 
 -spec handle_publish_authz_broker_subscription_create_request(
-    binary(), [binary()], binary(), binary(), binary(), client_id())
+    binary(), [binary()], binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_subscription_create_request(
-    Version, Object, Subject, CorrelationData, ResponseTopic, ClientId) ->
+    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{
         account_label=AccountLabel,
         audience=Audience} = ClientId,
-    App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
+
     %% Subscribe agent to app's topic and send success response to agent
+    App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
     create_authz_subscription(App, Version, Object, Subject),
-    send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId),
+
+    %% Send a response to the user
+    send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId),
+
+    %% Send a multicast event to the application
+    BrokerClientId = broker_client_id(BrokerId),
+    send_authz_subscription_success_event(App, Object, Subject, BrokerId, BrokerClientId),
     ok.
 
 -spec handle_publish_authz_broker_subscription_delete_request(
-    binary(), [binary()], binary(), binary(), binary(), client_id())
+    binary(), [binary()], binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_subscription_delete_request(
-    Version, Object, Subject, CorrelationData, ResponseTopic, ClientId) ->
+    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{
         account_label=AccountLabel,
         audience=Audience} = ClientId,
     App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
     %% Subscribe agent to app's topic and send success response to agent
     delete_authz_subscription(App, Version, Object, Subject),
-    send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId),
+    send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId),
     ok.
 
 -spec authz_subscription_topic(binary(), binary(), [binary()]) -> topic().
@@ -364,20 +372,22 @@ delete_authz_subscription(App, Version, Object, Subject) ->
     Topic = authz_subscription_topic(App, Version, Object),
     mqttgw_broker:unsubscribe(Subject, [Topic]).
 
--spec send_authz_subscription_success_response(binary(), binary(), binary(), client_id()) -> ok.
-send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, ClientId) ->
+-spec send_authz_subscription_success_response(
+    binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
+    -> ok.
+send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     QoS = 1,
     try mqttgw_broker:publish(
-        validate_broker_response_topic(binary:split(ResponseTopic, <<$/>>, [global]), App),
+        validate_broker_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
         envelope(
             #message{
                 payload = jsx:encode(#{}),
                 properties =
                     validate_message_properties(
                         update_message_properties(
-                            #{p_correlation_data => CorrelationData,
+                            #{p_correlation_data => CorrData,
                               p_user_property =>
                                 [ {<<"type">>, <<"response">>},
                                   {<<"status">>, <<"200">>} ]},
@@ -392,11 +402,51 @@ send_authz_subscription_success_response(App, CorrelationData, ResponseTopic, Cl
         T:R ->
             error_logger:error_msg(
                 "Error sending subscription success response to = '~s' "
-                "from the agent = '~s' using mode = '~s', "
+                "from the agent = '~s' using mode = '~s' "
+                "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [ResponseTopic, agent_id(ClientId), Mode, T, R]),
+                [RespTopic, agent_id(ClientId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
+
+-spec send_authz_subscription_success_event(
+    binary(), [binary()], binary(), mqttgw_id:agent_id(), client_id())
+    -> ok.
+send_authz_subscription_success_event(App, Object, Subject, BrokerId, ClientId) ->
+    QoS = 1,
+    try mqttgw_broker:publish(
+        broker_multicast_event_topic(App, BrokerId),
+        envelope(
+            #message{
+                payload = jsx:encode(
+                    #{object => Object,
+                      subject => Subject}),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_user_property =>
+                                [ {<<"type">>, <<"event">>},
+                                  {<<"label">>, <<"subscription.create">>} ]},
+                            ClientId
+                        ),
+                        ClientId
+                    )}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending subscription success event to = '~s' "
+                "by the broker agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [App, mqttgw_id:format_agent_id(BrokerId), T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec broker_multicast_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
+broker_multicast_event_topic(App, BrokerId) ->
+    [<<"agents">>, mqttgw_id:format_agent_id(BrokerId), <<"api">>, <<"v1">>, <<"out">>, App].
 
 -spec validate_broker_response_topic(topic(), binary()) -> topic().
 validate_broker_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
@@ -407,14 +457,14 @@ validate_broker_response_topic(Topic, App) ->
 -spec parse_broker_request_properties(map()) -> map().
 parse_broker_request_properties(Properties) ->
     #{p_user_property := UserProperties,
-      p_correlation_data := CorrelationData,
-      p_response_topic := ResponseTopic} = Properties,
+      p_correlation_data := CorrData,
+      p_response_topic := RespTopic} = Properties,
     {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
     {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
     #{type => Type,
       method => Method,
-      correlation_data => CorrelationData,
-      response_topic => ResponseTopic}.
+      correlation_data => CorrData,
+      response_topic => RespTopic}.
 
 -spec handle_message_properties(message(), client_id()) -> message().
 handle_message_properties(Message, ClientId) ->
@@ -542,13 +592,13 @@ to_mqtt3_envelope_properties(Properties, Acc0) ->
 
     Acc2 =
         case maps:find(p_correlation_data, Properties) of
-            {ok, CorrelationData} -> Acc1#{<<"correlation_data">> => CorrelationData};
+            {ok, CorrData} -> Acc1#{<<"correlation_data">> => CorrData};
             error -> Acc1
         end,
 
     Acc3 =
         case maps:find(p_response_topic, Properties) of
-            {ok, ResponseTopic} -> Acc2#{<<"response_topic">> => ResponseTopic};
+            {ok, RespTopic} -> Acc2#{<<"response_topic">> => RespTopic};
             error -> Acc2
         end,
 
@@ -558,13 +608,13 @@ to_mqtt3_envelope_properties(Properties, Acc0) ->
 to_mqtt5_properties(Rest0, Acc0) ->
     {Rest1, Acc1} =
         case maps:take(<<"response_topic">>, Rest0) of
-            {ResponseTopic, M1} -> {M1, Acc0#{p_response_topic => ResponseTopic}};
+            {RespTopic, M1} -> {M1, Acc0#{p_response_topic => RespTopic}};
             error -> {Rest0, Acc0}
         end,
 
     {Rest2, Acc2} =
         case maps:take(<<"correlation_data">>, Rest1) of
-            {CorrelationData, M2} -> {M2, Acc1#{p_correlation_data => CorrelationData}};
+            {CorrData, M2} -> {M2, Acc1#{p_correlation_data => CorrData}};
             error -> {Rest1, Acc1}
         end,
 
@@ -823,6 +873,14 @@ account_id(ClientId) ->
         audience=Audience} = ClientId,
 
     <<Label/binary, $., Audience/binary>>.
+
+-spec broker_client_id(mqttgw_id:agent_id()) -> client_id().
+broker_client_id(AgentId) ->
+    #client_id
+        {mode = service,
+         agent_label = mqttgw_id:label(AgentId),
+         account_label = mqttgw_id:account_label(AgentId),
+         audience = mqttgw_id:audience(AgentId)}.
 
 -spec validate_client_id(client_id()) -> client_id().
 validate_client_id(Val) ->
