@@ -460,7 +460,8 @@ validate_message_properties(Properties, ClientId) ->
                 %% Only services can specify a response topic that is not assosiated
                 %% with their account
                 {_, _, {ok,  _}} when Mode =:= service -> ok;
-                {_, _, {ok, RT}} -> verify_response_topic(RT, agent_id(ClientId))
+                {_, _, {ok, RT}} ->
+                    verify_response_topic(binary:split(RT, <<$/>>, [global]), agent_id(ClientId))
             end;
         {ok, <<"response">>} ->
             %% Rrequired properties:
@@ -1252,11 +1253,10 @@ message_properties_test_() ->
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
     end,
     ResponseTopic = fun() ->
-        [ <<"agents">>, agent_id(ClientId(default)),
-          <<"api">>, <<"v1">>, <<"in">>, <<"bar.aud.example.org">> ]
+        <<"agents/", (agent_id(ClientId(default)))/binary, "/api/v1/in/baz.aud.example.org">>
     end,
     BadResponseTopic = fun() ->
-        [<<"agents">>, <<>>, <<"api">>, <<"v1">>, <<"in">>, <<"bar.aud.example.org">>]
+        <<"agents/another.bar.aud.example.org/api/v1/in/baz.aud.example.org">>
     end,
 
     AnyMode = [default, service, service_payload_only, observer, bridge],
@@ -1285,7 +1285,7 @@ message_properties_test_() ->
           #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
             p_correlation_data => <<>>},
           error },
-        { "type: request, no response_topic",
+        { "type: request, with response_topic",
           AnyMode,
           #{p_user_property => [{<<"type">>, <<"request">>}, {<<"method">>, <<>>}],
             p_correlation_data => <<>>,
