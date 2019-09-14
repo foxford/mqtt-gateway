@@ -11,7 +11,9 @@ define PROJECT_ENV
 			{mqttgw, on_deliver, 4, []},
 			{mqttgw, on_deliver_m5, 5, []},
 			{mqttgw, auth_on_subscribe, 3, []},
-			{mqttgw, auth_on_subscribe_m5, 4, []}
+			{mqttgw, auth_on_subscribe_m5, 4, []},
+			{mqttgw, on_client_offline, 1, []},
+			{mqttgw, on_client_gone, 1, []}
 		]}
 	]
 endef

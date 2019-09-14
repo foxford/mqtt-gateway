@@ -14,6 +14,7 @@
 
 start(_StartType, _StartArgs) ->
     mqttgw_state:new(),
+    mqttgw_dynsubstate:new(),
     mqttgw_sup:start_link().
 
 stop(_State) ->
