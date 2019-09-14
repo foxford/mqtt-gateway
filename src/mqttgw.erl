@@ -8,6 +8,8 @@
 -behaviour(on_deliver_m5_hook).
 -behaviour(auth_on_subscribe_hook).
 -behaviour(auth_on_subscribe_m5_hook).
+-behaviour(on_client_offline_hook).
+-behaviour(on_client_gone_hook).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -36,7 +38,9 @@
     on_deliver/4,
     on_deliver_m5/5,
     auth_on_subscribe/3,
-    auth_on_subscribe_m5/4
+    auth_on_subscribe_m5/4,
+    on_client_offline/1,
+    on_client_gone/1
 ]).
 
 %% Definitions
@@ -293,7 +297,7 @@ handle_publish_authz_broker_request(
            method := <<"subscription.create">>,
            correlation_data := CorrData,
            response_topic := RespTopic}} ->
-               handle_publish_authz_broker_subscription_create_request(
+               handle_publish_authz_broker_dynsub_create_request(
                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId);
         {service,
          #{<<"object">> := Object,
@@ -302,7 +306,7 @@ handle_publish_authz_broker_request(
            method := <<"subscription.delete">>,
            correlation_data := CorrData,
            response_topic := RespTopic}} ->
-               handle_publish_authz_broker_subscription_delete_request(
+               handle_publish_authz_broker_dynsub_delete_request(
                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId);
         _ ->
             error_logger:error_msg(
@@ -322,65 +326,106 @@ handle_publish_authz_broker_request(
 handle_publish_authz_broker_request(_Topic, _Message, _BrokerAccoundId, _BrokerId, _ClientId) ->
     ok.
 
--spec handle_publish_authz_broker_subscription_create_request(
-    binary(), [binary()], binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
+-spec handle_publish_authz_broker_dynsub_create_request(
+    binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
+    binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
-handle_publish_authz_broker_subscription_create_request(
+handle_publish_authz_broker_dynsub_create_request(
     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{
         account_label=AccountLabel,
         audience=Audience} = ClientId,
 
-    %% Subscribe agent to app's topic and send success response to agent
+    %% Subscribe the agent to the app's topic and send a success response
     App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
-    create_authz_subscription(App, Version, Object, Subject),
+    create_dynsub(App, Version, Object, Subject),
 
-    %% Send a response to the user
-    send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId),
+    %% Send an unicast response to the 3rd-party agent
+    send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId),
 
     %% Send a multicast event to the application
-    BrokerClientId = broker_client_id(BrokerId),
-    send_authz_subscription_success_event(App, Object, Subject, BrokerId, BrokerClientId),
+    send_dynsub_event(<<"subscription.create">>, App, Object, Subject, BrokerId),
     ok.
 
--spec handle_publish_authz_broker_subscription_delete_request(
-    binary(), [binary()], binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
+-spec handle_publish_authz_broker_dynsub_delete_request(
+    binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
+    binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok | {error, error()}.
-handle_publish_authz_broker_subscription_delete_request(
+handle_publish_authz_broker_dynsub_delete_request(
     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{
         account_label=AccountLabel,
         audience=Audience} = ClientId,
+
+    %% Unsubscribe the agent from the app's topic and send a success response
     App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
-    %% Subscribe agent to app's topic and send success response to agent
-    delete_authz_subscription(App, Version, Object, Subject),
-    send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId),
+    delete_dynsub(App, Version, Object, Subject),
+
+    %% Send an unicast response to the 3rd-party agent
+    send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId),
+
+    %% Send a multicast event to the application
+    send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId),
     ok.
 
--spec authz_subscription_topic(binary(), binary(), [binary()]) -> topic().
+-spec authz_subscription_topic(binary(), binary(), mqttgw_dynsubstate:object()) -> topic().
 authz_subscription_topic(App, Version, Object) ->
     [<<"apps">>, App, <<"api">>, Version | Object].
 
--spec create_authz_subscription(binary(), binary(), [binary()], binary()) -> ok.
-create_authz_subscription(App, Version, Object, Subject) ->
-    Topic = authz_subscription_topic(App, Version, Object),
+-spec create_dynsub(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
+create_dynsub(App, Version, Object, Subject) ->
     QoS = 1,
-    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]).
-
--spec delete_authz_subscription(binary(), binary(), [binary()], binary()) -> ok.
-delete_authz_subscription(App, Version, Object, Subject) ->
     Topic = authz_subscription_topic(App, Version, Object),
-    mqttgw_broker:unsubscribe(Subject, [Topic]).
+    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
 
--spec send_authz_subscription_success_response(
+    %% Save information about the dynamic subscription
+    mqttgw_dynsubstate:put(Subject, #{object => Object, app => App}),
+    ok.
+
+-spec delete_dynsub(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
+delete_dynsub(App, Version, Object, Subject) ->
+    Topic = authz_subscription_topic(App, Version, Object),
+    mqttgw_broker:unsubscribe(Subject, [Topic]),
+
+    %% Remove information about the dynamic subscription
+    mqttgw_dynsubstate:remove(Subject),
+    ok.
+
+-spec delete_client_dynsubs(mqttgw_dynsubstate:subject(), mqttgw_id:agent_id()) -> ok.
+delete_client_dynsubs(Subject, BrokerId) ->
+    [begin
+        #{object := Object, app := App} = Data,
+
+        %% Send a multicast event to the application
+        send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
+     end || Data <- mqttgw_dynsubstate:get(Subject)],
+
+    %% Remove information about the dynamic subscription
+    mqttgw_dynsubstate:remove(Subject),
+    ok.
+
+-spec erase_dynsubs(mqttgw_id:agent_id()) -> ok.
+erase_dynsubs(BrokerId) ->
+    mqttgw_dynsubstate:foreach(
+        fun(Subject, Data) ->
+            #{object := Object, app := App} = Data,
+
+            %% Send a multicast event to the application
+            send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
+        end),
+    mqttgw_dynsubstate:erase().
+
+-spec send_dynsub_response(
     binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok.
-send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
+send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     QoS = 1,
     try mqttgw_broker:publish(
-        validate_broker_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
+        validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
         envelope(
             #message{
                 payload = jsx:encode(#{}),
@@ -409,13 +454,15 @@ send_authz_subscription_success_response(App, CorrData, RespTopic, BrokerId, Cli
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec send_authz_subscription_success_event(
-    binary(), [binary()], binary(), mqttgw_id:agent_id(), client_id())
+-spec send_dynsub_event(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
+    mqttgw_id:agent_id())
     -> ok.
-send_authz_subscription_success_event(App, Object, Subject, BrokerId, ClientId) ->
+send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
+    ClientId = broker_client_id(BrokerId),
     QoS = 1,
     try mqttgw_broker:publish(
-        broker_multicast_event_topic(App, BrokerId),
+        dynsub_event_topic(App, BrokerId),
         envelope(
             #message{
                 payload = jsx:encode(
@@ -426,7 +473,7 @@ send_authz_subscription_success_event(App, Object, Subject, BrokerId, ClientId) 
                         update_message_properties(
                             #{p_user_property =>
                                 [ {<<"type">>, <<"event">>},
-                                  {<<"label">>, <<"subscription.create">>} ]},
+                                  {<<"label">>, Label} ]},
                             ClientId
                         ),
                         ClientId
@@ -444,14 +491,14 @@ send_authz_subscription_success_event(App, Object, Subject, BrokerId, ClientId) 
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec broker_multicast_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
-broker_multicast_event_topic(App, BrokerId) ->
+-spec dynsub_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
+dynsub_event_topic(App, BrokerId) ->
     [<<"agents">>, mqttgw_id:format_agent_id(BrokerId), <<"api">>, <<"v1">>, <<"out">>, App].
 
--spec validate_broker_response_topic(topic(), binary()) -> topic().
-validate_broker_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
+-spec validate_dynsub_response_topic(topic(), binary()) -> topic().
+validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
     Topic;
-validate_broker_response_topic(Topic, App) ->
+validate_dynsub_response_topic(Topic, App) ->
     error({nomatch_app_in_broker_response_topic, Topic, App}).
 
 -spec parse_broker_request_properties(map()) -> map().
@@ -804,7 +851,12 @@ start() ->
 
 -spec stop() -> ok.
 stop() ->
-    ok.
+    case mqttgw_state:find(authz) of
+        {ok, {enabled, Me, _}} ->
+            erase_dynsubs(Me);
+        _ ->
+            ok
+    end.
 
 auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
@@ -844,6 +896,7 @@ on_deliver_m5(
 auth_on_subscribe(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Subscriptions) ->
+    error_logger:info_msg("auth_on_subscribe", []),
     case handle_subscribe_authz(Subscriptions, parse_client_id(ClientId)) of
         ok ->
             ok;
@@ -854,7 +907,24 @@ auth_on_subscribe(
 auth_on_subscribe_m5(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
     Subscriptions, _Properties) ->
+    error_logger:info_msg("auth_on_subscribe_m5", []),
     handle_subscribe_authz(Subscriptions, parse_client_id(ClientId)).
+
+on_client_offline({_MountPoint, ClientId} = _SubscriberId) ->
+    case mqttgw_state:find(authz) of
+        {ok, {enabled, Me, _}} ->
+            delete_client_dynsubs(ClientId, Me);
+        _ ->
+            ok
+    end.
+
+on_client_gone({_MountPoint, ClientId} = _SubscriberId) ->
+    case mqttgw_state:find(authz) of
+        {ok, {enabled, Me, _}} ->
+            delete_client_dynsubs(ClientId, Me);
+        _ ->
+            ok
+    end.
 
 %% =============================================================================
 %% Internal functions
