@@ -24,7 +24,7 @@ read_config(TomlConfig) ->
     AgentLabel =
         case os:getenv("APP_AGENT_LABEL") of
             false -> parse_agent_label(TomlConfig);
-            Val -> Val
+            Val -> list_to_binary(Val)
         end,
 
     #{label => AgentLabel,
