@@ -18,7 +18,7 @@
 
 %% API
 -export([
-    handle_connect/2,
+    handle_connect/3,
     handle_publish_mqtt3/3,
     handle_publish_mqtt5/4,
     handle_publish_authz/3,
@@ -73,11 +73,11 @@
 %% API: Connect
 %% =============================================================================
 
--spec handle_connect(binary(), binary()) -> ok | {error, error()}.
-handle_connect(ClientId, Password) ->
+-spec handle_connect(binary(), binary(), boolean()) -> ok | {error, error()}.
+handle_connect(ClientId, Password, CleanSession) ->
     try validate_client_id(parse_client_id(ClientId)) of
         Val ->
-            handle_connect_authn_config(Val, Password)
+            handle_connect_constraints(Val, Password, CleanSession)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -85,6 +85,20 @@ handle_connect(ClientId, Password) ->
                 "exception_type = ~p, exception_reason = ~p",
                 [ClientId, T, R]),
             {error, #{reason_code => client_identifier_not_valid}}
+    end.
+
+-spec handle_connect_constraints(client_id(), binary(), boolean()) -> ok | {error, error()}.
+handle_connect_constraints(ClientId, Password, CleanSession) ->
+    try verify_connect_constraints(CleanSession, ClientId#client_id.mode) of
+        _ ->
+            handle_connect_authn_config(ClientId, Password)
+    catch
+        T:R ->
+            error_logger:warning_msg(
+                "Error on connect: invalid constraints check, clean_session = ~p, "
+                "exception_type = ~p, exception_reason = ~p",
+                [CleanSession, T, R]),
+            {error, #{reason_code => impl_specific_error}}
     end.
 
 -spec handle_connect_authn_config(client_id(), binary()) -> ok | {error, error()}.
@@ -177,6 +191,23 @@ handle_connect_success(ClientId) ->
         [agent_id(ClientId), Mode]),
     ok.
 
+-spec verify_connect_constraints(boolean(), connection_mode()) -> ok.
+verify_connect_constraints(CleanSession, Mode) ->
+    ok = verify_connect_clean_session_constraint(CleanSession, Mode),
+    ok.
+
+-spec verify_connect_clean_session_constraint(boolean(), connection_mode()) -> ok.
+%% Any for trusted modes
+verify_connect_clean_session_constraint(_IsRetain, Mode)
+    when (Mode =:= service) or (Mode =:= service_payload_only)
+      or (Mode =:= bridge) or (Mode =:= observer)
+    -> ok;
+%% Only 'false' for anyone else
+verify_connect_clean_session_constraint(true, _Mode) ->
+    ok;
+verify_connect_clean_session_constraint(IsRetain, _Mode) ->
+    error({bad_retain, IsRetain}).
+
 %% =============================================================================
 %% API: Publish
 %% =============================================================================
@@ -192,7 +223,7 @@ handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId) -
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid constraints, qos = ~p, retain = ~p "
+                "Error on publish: invalid constraints check, qos = ~p, retain = ~p "
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [QoS, IsRetain, agent_id(ClientId), Mode, T, R]),
@@ -236,7 +267,7 @@ handle_publish_mqtt5_constraints(Topic, InputPayload, InputProperties, QoS, IsRe
     catch
         T:R ->
             error_logger:error_msg(
-                "Error on publish: an invalid constraints, qos = ~p, retain = ~p "
+                "Error on publish: invalid constraints check, qos = ~p, retain = ~p "
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [QoS, IsRetain, agent_id(ClientId), Mode, T, R]),
@@ -727,7 +758,7 @@ verify_publish_qos_constraint(_QoS, _Mode) ->
 %% Any for 'service' mode
 verify_publish_retain_constraint(_IsRetain, service) ->
     ok;
-%% 'false' for anyone else
+%% Only 'false' for anyone else
 verify_publish_retain_constraint(false, _Mode) ->
     ok;
 verify_publish_retain_constraint(IsRetain, _Mode) ->
@@ -918,8 +949,8 @@ stop() ->
 
 auth_on_register(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
-    Password, _CleanSession) ->
-    case handle_connect(ClientId, Password) of
+    Password, CleanSession) ->
+    case handle_connect(ClientId, Password, CleanSession) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -928,8 +959,8 @@ auth_on_register(
 
 auth_on_register_m5(
     _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
-    Password, _CleanSession, _Properties) ->
-    handle_connect(ClientId, Password).
+    Password, CleanSession, _Properties) ->
+    handle_connect(ClientId, Password, CleanSession).
 
 auth_on_publish(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
@@ -1215,9 +1246,11 @@ qos_t() ->
 
 prop_onconnect() ->
     ?FORALL(
-        {Peer, SubscriberId, Username, Password, CleanSession},
-        {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t(), boolean()},
+        {Peer, SubscriberId, Username, Password},
+        {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t()},
         begin
+            CleanSession = minimal_constraint(clean_session),
+
             mqttgw_state:new(),
             mqttgw_state:put(authn, disabled),
             mqttgw_state:put(authz, disabled),
@@ -1228,9 +1261,11 @@ prop_onconnect() ->
 
 prop_onconnect_invalid_credentials() ->
     ?FORALL(
-        {Peer, MountPoint, ClientId, Username, Password, CleanSession},
+        {Peer, MountPoint, ClientId, Username, Password, InCleanSession},
         {any(), string(), binary(32), binary_utf8_t(), binary_utf8_t(), boolean()},
         begin
+            CleanSession = minimal_constraint(clean_session),
+
             SubscriberId = {MountPoint, ClientId},
             {error, client_identifier_not_valid} =
                 auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
@@ -1240,6 +1275,8 @@ prop_onconnect_invalid_credentials() ->
         end).
 
 authz_onconnect_test_() ->
+    CleanSession = minimal_constraint(clean_session),
+
     AgentLabel = <<"foo">>,
     AccountLabel = <<"bar">>,
     SvcAud = MeAud = <<"svc.example.org">>,
@@ -1277,7 +1314,7 @@ authz_onconnect_test_() ->
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password))}
+            {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password, CleanSession))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, _Result} <- Test],
     %% 2 - authn: enabled, authz: enabled
@@ -1289,7 +1326,7 @@ authz_onconnect_test_() ->
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test],
     %% 3 - authn: disabled, authz: enabled
@@ -1299,16 +1336,49 @@ authz_onconnect_test_() ->
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password))}
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test].
 
+message_connect_constraints_test_() ->
+    AnyMode = [default, service, service_payload_only, observer, bridge],
+    TrustedMode = [service, service_payload_only, observer, bridge],
+    NonTrustedMode = AnyMode -- TrustedMode,
+    AnyCleanSession = [false, true],
+    MinCleanSession = [true],
+
+    Test = [
+        {"trusted: any clean_session", AnyCleanSession, TrustedMode, ok},
+        {"nontrusted: w/ clean_session", [true], NonTrustedMode, ok},
+        {"nontrusted: w/o clean_session", [false], NonTrustedMode, error}
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
+    [begin
+        [begin
+            [begin
+                Result =
+                    try verify_connect_constraints(CleanSession, Mode) of
+                        _ ->
+                            ok
+                    catch
+                        _:_ ->
+                            error
+                    end,
+                {Desc, ?_assertEqual(Expect, Result)}
+            end || CleanSession <- CleanSessionL]
+        end || Mode <- Modes]
+    end || {Desc, CleanSessionL, Modes, Expect} <- Test].
+
 prop_onpublish() ->
     ?FORALL(
-        {Username, SubscriberId, InQoS, Topic, Payload, InIsRetain},
-        {binary_utf8_t(), subscriber_id_t(),
-         qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
+        {Username, SubscriberId, Topic, Payload},
+        {binary_utf8_t(), subscriber_id_t(), publish_topic_t(), binary_utf8_t()},
         begin
+            QoS = minimal_constraint(qos),
+            IsRetain = minimal_constraint(retain),
+
             mqttgw_state:new(),
             mqttgw_state:put(authz, disabled),
             #client_id{
@@ -1327,7 +1397,6 @@ prop_onpublish() ->
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
             ExpectedUserL = [{<<"type">>, <<"event">>} | ExpectedAuthnUserL ++ ExpectedConnectionL],
             ExpectedProperties = #{p_user_property => ExpectedUserL},
-            {QoS, IsRetain} = minimum_constraints(InQoS, InIsRetain, Mode),
 
             %% MQTT 5
             begin
@@ -1381,7 +1450,8 @@ prop_onpublish() ->
         end).
 
 bridge_missing_properties_onpublish_test_() ->
-    {QoS, IsRetain} = minimum_constraints(bridge),
+    QoS = minimal_constraint(qos),
+    IsRetain = minimal_constraint(retain),
     ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>, bridge),
     Test =
         [{"missing properties", #{}},
@@ -1655,15 +1725,9 @@ authz_onsubscribe_test_() ->
         end || Mode <- Modes]
     end || {Desc, TopicFn, Modes, Expect} <- Test].
 
-minimum_constraints(service) ->
-    {2, true};
-minimum_constraints(_Mode) ->
-    {2, false}.
-
-minimum_constraints(QoS, IsRetain, service) ->
-    {QoS, IsRetain};
-minimum_constraints(_QoS, _IsRetain, Mode) ->
-    minimum_constraints(Mode).
+minimal_constraint(clean_session) -> true;
+minimal_constraint(retain) -> false;
+minimal_constraint(qos) -> 0.
 
 make_sample_password(AccountLabel, Audience, Issuer) ->
     Alg = <<"HS256">>,
