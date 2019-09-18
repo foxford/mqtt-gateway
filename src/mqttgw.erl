@@ -181,7 +181,26 @@ handle_connect_success(ClientId) ->
 %% API: Publish
 %% =============================================================================
 
--spec handle_publish_mqtt3(topic(), binary(), client_id()) -> {ok, list()} | {error, error()}.
+-spec handle_publish_mqtt3_constraints(topic(), binary(), qos(), boolean(), client_id())
+    -> {ok, list()} | {error, error()}.
+handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try verify_publish_constraints(QoS, IsRetain, Mode) of
+        _ ->
+            handle_publish_mqtt3(Topic, InputPayload, ClientId)
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: an invalid constraints, qos = ~p, retain = ~p "
+                "from the agent = '~s' using mode = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [QoS, IsRetain, agent_id(ClientId), Mode, T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec handle_publish_mqtt3(topic(), binary(), client_id())
+    -> {ok, list()} | {error, error()}.
 handle_publish_mqtt3(Topic, InputPayload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
@@ -203,6 +222,24 @@ handle_publish_mqtt3(Topic, InputPayload, ClientId) ->
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [InputPayload, agent_id(ClientId), Mode, T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec handle_publish_mqtt5_constraints(topic(), binary(), map(), qos(), boolean(), client_id())
+    -> {ok, map()} | {error, error()}.
+handle_publish_mqtt5_constraints(Topic, InputPayload, InputProperties, QoS, IsRetain, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    try verify_publish_constraints(QoS, IsRetain, Mode) of
+        _ ->
+            handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId)
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: an invalid constraints, qos = ~p, retain = ~p "
+                "from the agent = '~s' using mode = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [QoS, IsRetain, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -675,6 +712,27 @@ to_mqtt5_properties(Rest0, Acc0) ->
         _ -> Acc2#{p_user_property => UserProperties}
     end.
 
+-spec verify_publish_constraints(qos(), boolean(), connection_mode()) -> ok.
+verify_publish_constraints(QoS, IsRetain, Mode) ->
+    ok = verify_publish_qos_constraint(QoS, Mode),
+    ok = verify_publish_retain_constraint(IsRetain, Mode),
+    ok.
+
+-spec verify_publish_qos_constraint(qos(), connection_mode()) -> ok.
+%% Any for anyone
+verify_publish_qos_constraint(_QoS, _Mode) ->
+    ok.
+
+-spec verify_publish_retain_constraint(boolean(), connection_mode()) -> ok.
+%% Any for 'service' mode
+verify_publish_retain_constraint(_IsRetain, service) ->
+    ok;
+%% 'false' for anyone else
+verify_publish_retain_constraint(false, _Mode) ->
+    ok;
+verify_publish_retain_constraint(IsRetain, _Mode) ->
+    error({bad_retain, IsRetain}).
+
 -spec verify_publish_topic(topic(), binary(), binary(), connection_mode()) -> ok.
 %% Broadcast:
 %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
@@ -875,13 +933,17 @@ auth_on_register_m5(
 
 auth_on_publish(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain) ->
-    handle_publish_mqtt3(Topic, Payload, parse_client_id(ClientId)).
+    QoS, Topic, Payload, IsRetain) ->
+    handle_publish_mqtt3_constraints(
+        Topic, Payload, QoS, IsRetain,
+        parse_client_id(ClientId)).
 
 auth_on_publish_m5(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain, Properties) ->
-    handle_publish_mqtt5(Topic, Payload, Properties, parse_client_id(ClientId)).
+    QoS, Topic, Payload, IsRetain, Properties) ->
+    handle_publish_mqtt5_constraints(
+        Topic, Payload, Properties, QoS, IsRetain,
+        parse_client_id(ClientId)).
 
 on_deliver(
     _Username, {_MountPoint, ClientId} = _SubscriberId,
@@ -1243,7 +1305,7 @@ authz_onconnect_test_() ->
 
 prop_onpublish() ->
     ?FORALL(
-        {Username, SubscriberId, QoS, Topic, Payload, IsRetain},
+        {Username, SubscriberId, InQoS, Topic, Payload, InIsRetain},
         {binary_utf8_t(), subscriber_id_t(),
          qos_t(), publish_topic_t(), binary_utf8_t(), boolean()},
         begin
@@ -1265,6 +1327,7 @@ prop_onpublish() ->
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
             ExpectedUserL = [{<<"type">>, <<"event">>} | ExpectedAuthnUserL ++ ExpectedConnectionL],
             ExpectedProperties = #{p_user_property => ExpectedUserL},
+            {QoS, IsRetain} = minimum_constraints(InQoS, InIsRetain, Mode),
 
             %% MQTT 5
             begin
@@ -1318,6 +1381,7 @@ prop_onpublish() ->
         end).
 
 bridge_missing_properties_onpublish_test_() ->
+    {QoS, IsRetain} = minimum_constraints(bridge),
     ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>, bridge),
     Test =
         [{"missing properties", #{}},
@@ -1377,6 +1441,42 @@ authz_onpublish_test_() ->
             {Desc, ?_assertEqual(Expect, Result)}
         end || Mode <- Modes]
     end || {Desc, TopicFn, Modes, Expect} <- Test].
+
+message_publish_constraints_test_() ->
+    AnyMode = [default, service, service_payload_only, observer, bridge],
+    ServiceMode = [service],
+    NonServiceMode = AnyMode -- ServiceMode,
+    AnyQoS = [0, 1, 2],
+    MinQoS = [0],
+    AnyRetain = [false, true],
+    MinRetain = [false],
+
+    Test = [
+        {"qos: any", AnyQoS, MinRetain, AnyMode, ok},
+        {"svc: any retain", MinQoS, AnyRetain, ServiceMode, ok},
+        {"nonsvc: w/ retain", MinQoS, [true], NonServiceMode, error},
+        {"nonsvc: w/o retain", MinQoS, [false], NonServiceMode}
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
+    [begin
+        [begin
+            [begin
+                [begin
+                    Result =
+                        try verify_publish_constraints(QoS, IsRetain, Mode) of
+                            _ ->
+                                ok
+                        catch
+                            _:_ ->
+                                error
+                        end,
+                    {Desc, ?_assertEqual(Expect, Result)}
+                end || QoS <- QoSL]
+            end || IsRetain <- RetainL]
+        end || Mode <- Modes]
+    end || {Desc, QoSL, RetainL, Modes, Expect} <- Test].
 
 message_properties_test_() ->
     ClientId = fun(Mode) ->
@@ -1554,6 +1654,16 @@ authz_onsubscribe_test_() ->
              {Desc ++ "– shared", ?_assertEqual(Expect, ResultShared)}]
         end || Mode <- Modes]
     end || {Desc, TopicFn, Modes, Expect} <- Test].
+
+minimum_constraints(service) ->
+    {2, true};
+minimum_constraints(_Mode) ->
+    {2, false}.
+
+minimum_constraints(QoS, IsRetain, service) ->
+    {QoS, IsRetain};
+minimum_constraints(_QoS, _IsRetain, Mode) ->
+    minimum_constraints(Mode).
 
 make_sample_password(AccountLabel, Audience, Issuer) ->
     Alg = <<"HS256">>,
