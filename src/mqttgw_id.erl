@@ -12,7 +12,7 @@
 ]).
 
 %% Types
--type agent_id() :: map().
+-type agent_id() :: #{label := binary(), account_id := mqttgw_authn:account_id()}.
 
 -export_types([agent_id/0]).
 
