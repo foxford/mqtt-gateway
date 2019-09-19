@@ -74,16 +74,16 @@
 %% =============================================================================
 
 -spec handle_connect(binary(), binary(), boolean()) -> ok | {error, error()}.
-handle_connect(ClientId, Password, CleanSession) ->
-    try validate_client_id(parse_client_id(ClientId)) of
-        Val ->
-            handle_connect_constraints(Val, Password, CleanSession)
+handle_connect(Conn, Password, CleanSession) ->
+    try validate_client_id(parse_client_id(Conn)) of
+        ClientId ->
+            handle_connect_constraints(ClientId, Password, CleanSession)
     catch
         T:R ->
             error_logger:warning_msg(
                 "Error on connect: an invalid client_id = ~p, "
                 "exception_type = ~p, exception_reason = ~p",
-                [ClientId, T, R]),
+                [Conn, T, R]),
             {error, #{reason_code => client_identifier_not_valid}}
     end.
 
@@ -227,6 +227,58 @@ verify_connect_clean_session_constraint(true, _Mode) ->
     ok;
 verify_connect_clean_session_constraint(IsRetain, _Mode) ->
     error({bad_retain, IsRetain}).
+
+%% =============================================================================
+%% API: Disconnect
+%% =============================================================================
+
+-spec handle_disconnect(binary()) -> ok.
+handle_disconnect(Conn) ->
+    handle_disconnect_authz_config(Conn, parse_client_id(Conn)).
+
+-spec handle_disconnect_authz_config(binary(), client_id()) -> ok.
+handle_disconnect_authz_config(Conn, ClientId) ->
+    case mqttgw_state:find(authz) of
+        {ok, disabled} ->
+            handle_disconnect_stat_config(ClientId);
+        {ok, {enabled, Me, _}} ->
+            delete_client_dynsubs(Conn, Me),
+            handle_disconnect_stat_config(ClientId);
+        _ ->
+            error_logger:warning_msg(
+                "Error on connect: authz config isn't found for the agent = '~s'",
+                [agent_id(ClientId)]),
+            {error, #{reason_code => not_authorized}}
+    end.
+
+-spec handle_disconnect_stat_config(client_id()) -> ok | {error, error()}.
+handle_disconnect_stat_config(ClientId) ->
+    case mqttgw_state:find(stat) of
+        {ok, disabled} ->
+            handle_disconnect_success(ClientId);
+        {ok, {enabled, Me}} ->
+            send_audience_event(
+                #{id => agent_id(ClientId)},
+                <<"agent.leave">>,
+                Me,
+                ClientId),
+            handle_disconnect_success(ClientId);
+        _ ->
+            error_logger:warning_msg(
+                "Error on connect: stat config isn't found "
+                "for the agent = '~s'",
+                [agent_id(ClientId)]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec handle_disconnect_success(client_id()) -> ok.
+handle_disconnect_success(ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    error_logger:info_msg(
+        "Agent = '~s' disconnected: mode = '~s'",
+        [agent_id(ClientId), Mode]),
+    ok.
 
 %% =============================================================================
 %% API: Publish
@@ -824,9 +876,9 @@ stop() ->
     end.
 
 auth_on_register(
-    _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
+    _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
     Password, CleanSession) ->
-    case handle_connect(ClientId, Password, CleanSession) of
+    case handle_connect(Conn, Password, CleanSession) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -834,39 +886,38 @@ auth_on_register(
     end.
 
 auth_on_register_m5(
-    _Peer, {_MountPoint, ClientId} = _SubscriberId, _Username,
+    _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
     Password, CleanSession, _Properties) ->
-    handle_connect(ClientId, Password, CleanSession).
+    handle_connect(Conn, Password, CleanSession).
 
 auth_on_publish(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain) ->
     handle_publish_mqtt3_constraints(
         Topic, Payload, QoS, IsRetain,
-        parse_client_id(ClientId)).
+        parse_client_id(Conn)).
 
 auth_on_publish_m5(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain, Properties) ->
     handle_publish_mqtt5_constraints(
         Topic, Payload, Properties, QoS, IsRetain,
-        parse_client_id(ClientId)).
+        parse_client_id(Conn)).
 
 on_deliver(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     _Topic, Payload) ->
-    handle_deliver_mqtt3(Payload, parse_client_id(ClientId)).
+    handle_deliver_mqtt3(Payload, parse_client_id(Conn)).
 
 on_deliver_m5(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     _Topic, Payload, Properties) ->
-    handle_deliver_mqtt5(Payload, Properties, parse_client_id(ClientId)).
+    handle_deliver_mqtt5(Payload, Properties, parse_client_id(Conn)).
 
 auth_on_subscribe(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions) ->
-    error_logger:info_msg("auth_on_subscribe", []),
-    case handle_subscribe_authz(Subscriptions, parse_client_id(ClientId)) of
+    case handle_subscribe_authz(Subscriptions, parse_client_id(Conn)) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -874,26 +925,15 @@ auth_on_subscribe(
     end.
 
 auth_on_subscribe_m5(
-    _Username, {_MountPoint, ClientId} = _SubscriberId,
+    _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions, _Properties) ->
-    error_logger:info_msg("auth_on_subscribe_m5", []),
-    handle_subscribe_authz(Subscriptions, parse_client_id(ClientId)).
+    handle_subscribe_authz(Subscriptions, parse_client_id(Conn)).
 
-on_client_offline({_MountPoint, ClientId} = _SubscriberId) ->
-    case mqttgw_state:find(authz) of
-        {ok, {enabled, Me, _}} ->
-            delete_client_dynsubs(ClientId, Me);
-        _ ->
-            ok
-    end.
+on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
+    handle_disconnect(Conn).
 
-on_client_gone({_MountPoint, ClientId} = _SubscriberId) ->
-    case mqttgw_state:find(authz) of
-        {ok, {enabled, Me, _}} ->
-            delete_client_dynsubs(ClientId, Me);
-        _ ->
-            ok
-    end.
+on_client_gone({_MountPoint, Conn} = _SubscriberId) ->
+    handle_disconnect(Conn).
 
 %% =============================================================================
 %% Internal functions
