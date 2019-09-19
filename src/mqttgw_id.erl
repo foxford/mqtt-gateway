@@ -13,7 +13,7 @@
 %% Types
 -type agent_id() :: map().
 
--export_types([agent_id/1]).
+-export_types([agent_id/0]).
 
 %% =============================================================================
 %% API

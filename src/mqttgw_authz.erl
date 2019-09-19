@@ -10,7 +10,7 @@
 %% Types
 -type config() :: map().
 
--export_types([config/1]).
+-export_types([config/0]).
 
 %% =============================================================================
 %% API
