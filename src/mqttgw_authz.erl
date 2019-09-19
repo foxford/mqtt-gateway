@@ -3,7 +3,7 @@
 %% API
 -export([
     read_config/0,
-    read_config/1,
+    read_config_file/1,
     authorize/3
 ]).
 
@@ -23,15 +23,15 @@ read_config() ->
             error_logger:info_msg("[CONFIG] Authz is disabled~n"),
             disabled;
         _ ->
-            TomlConfig = mqttgw_config:read_config(),
-            Id = mqttgw_id:read_config(TomlConfig),
-            Config = read_config(TomlConfig),
+            TomlConfig = mqttgw_config:read_config_file(),
+            Id = mqttgw_id:read_config_file(TomlConfig),
+            Config = read_config_file(TomlConfig),
             error_logger:info_msg("[CONFIG] Authz is loaded: ~p, ~p~n", [Id, Config]),
             {enabled, Id, Config}
     end.
 
--spec read_config(toml:config()) ->config().
-read_config(TomlConfig) ->
+-spec read_config_file(toml:config()) ->config().
+read_config_file(TomlConfig) ->
     toml:folds(
         ["authz"],
         fun(_Config, Section, Acc) ->

@@ -3,7 +3,7 @@
 %% API
 -export([
     read_config/0,
-    read_config/1,
+    read_config_file/1,
     authenticate/2,
     parse_account_id/1,
     format_account_id/1
@@ -26,13 +26,13 @@ read_config() ->
             error_logger:info_msg("[CONFIG] Authn is disabled~n"),
             disabled;
         _ ->
-            Config = read_config(mqttgw_config:read_config()),
+            Config = read_config_file(mqttgw_config:read_config_file()),
             error_logger:info_msg("[CONFIG] Authn is loaded: ~p~n", [Config]),
             {enabled, Config}
     end.
 
--spec read_config(toml:config()) -> config().
-read_config(TomlConfig) ->
+-spec read_config_file(toml:config()) -> config().
+read_config_file(TomlConfig) ->
     toml:folds(
         ["authn"],
         fun(_Config, Section, Acc) ->

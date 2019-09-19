@@ -2,7 +2,7 @@
 
 %% API
 -export([
-    read_config/1,
+    read_config_file/1,
     account_id/1,
     account_label/1,
     audience/1,
@@ -20,8 +20,8 @@
 %% API
 %% =============================================================================
 
--spec read_config(toml:config()) -> agent_id().
-read_config(TomlConfig) ->
+-spec read_config_file(toml:config()) -> agent_id().
+read_config_file(TomlConfig) ->
     AgentLabel =
         case os:getenv("APP_AGENT_LABEL") of
             false -> parse_agent_label(TomlConfig);
