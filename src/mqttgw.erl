@@ -436,151 +436,6 @@ handle_publish_authz_broker_dynsub_delete_request(
     send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId),
     ok.
 
--spec authz_subscription_topic(binary(), binary(), mqttgw_dynsubstate:object()) -> topic().
-authz_subscription_topic(App, Version, Object) ->
-    [<<"apps">>, App, <<"api">>, Version | Object].
-
--spec create_dynsub(
-    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
-create_dynsub(App, Version, Object, Subject) ->
-    QoS = 1,
-    Topic = authz_subscription_topic(App, Version, Object),
-    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
-
-    %% Save information about the dynamic subscription
-    mqttgw_dynsubstate:put(Subject, #{object => Object, app => App}),
-    ok.
-
--spec delete_dynsub(
-    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
-delete_dynsub(App, Version, Object, Subject) ->
-    Topic = authz_subscription_topic(App, Version, Object),
-    mqttgw_broker:unsubscribe(Subject, [Topic]),
-
-    %% Remove information about the dynamic subscription
-    mqttgw_dynsubstate:remove(Subject),
-    ok.
-
--spec delete_client_dynsubs(mqttgw_dynsubstate:subject(), mqttgw_id:agent_id()) -> ok.
-delete_client_dynsubs(Subject, BrokerId) ->
-    [begin
-        #{object := Object, app := App} = Data,
-
-        %% Send a multicast event to the application
-        send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
-     end || Data <- mqttgw_dynsubstate:get(Subject)],
-
-    %% Remove information about the dynamic subscription
-    mqttgw_dynsubstate:remove(Subject),
-    ok.
-
--spec erase_dynsubs(mqttgw_id:agent_id()) -> ok.
-erase_dynsubs(BrokerId) ->
-    mqttgw_dynsubstate:foreach(
-        fun(Subject, Data) ->
-            #{object := Object, app := App} = Data,
-
-            %% Send a multicast event to the application
-            send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
-        end),
-    mqttgw_dynsubstate:erase().
-
--spec send_dynsub_response(
-    binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
-    -> ok.
-send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
-    #client_id{mode=Mode} = ClientId,
-
-    QoS = 1,
-    try mqttgw_broker:publish(
-        validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
-        envelope(
-            #message{
-                payload = jsx:encode(#{}),
-                properties =
-                    validate_message_properties(
-                        update_message_properties(
-                            #{p_correlation_data => CorrData,
-                              p_user_property =>
-                                [ {<<"type">>, <<"response">>},
-                                  {<<"status">>, <<"200">>} ]},
-                            ClientId
-                        ),
-                        ClientId
-                    )}),
-        QoS) of
-        _ ->
-            ok
-    catch
-        T:R ->
-            error_logger:error_msg(
-                "Error sending subscription success response to = '~s' "
-                "from the agent = '~s' using mode = '~s' "
-                "by the broker agent = '~s', "
-                "exception_type = ~p, exception_reason = ~p",
-                [RespTopic, agent_id(ClientId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
-            {error, #{reason_code => impl_specific_error}}
-    end.
-
--spec send_dynsub_event(
-    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
-    mqttgw_id:agent_id())
-    -> ok.
-send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
-    ClientId = broker_client_id(BrokerId),
-    QoS = 1,
-    try mqttgw_broker:publish(
-        dynsub_event_topic(App, BrokerId),
-        envelope(
-            #message{
-                payload = jsx:encode(
-                    #{object => Object,
-                      subject => Subject}),
-                properties =
-                    validate_message_properties(
-                        update_message_properties(
-                            #{p_user_property =>
-                                [ {<<"type">>, <<"event">>},
-                                  {<<"label">>, Label} ]},
-                            ClientId
-                        ),
-                        ClientId
-                    )}),
-        QoS) of
-        _ ->
-            ok
-    catch
-        T:R ->
-            error_logger:error_msg(
-                "Error sending subscription success event to = '~s' "
-                "by the broker agent = '~s', "
-                "exception_type = ~p, exception_reason = ~p",
-                [App, mqttgw_id:format_agent_id(BrokerId), T, R]),
-            {error, #{reason_code => impl_specific_error}}
-    end.
-
--spec dynsub_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
-dynsub_event_topic(App, BrokerId) ->
-    [<<"agents">>, mqttgw_id:format_agent_id(BrokerId), <<"api">>, <<"v1">>, <<"out">>, App].
-
--spec validate_dynsub_response_topic(topic(), binary()) -> topic().
-validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
-    Topic;
-validate_dynsub_response_topic(Topic, App) ->
-    error({nomatch_app_in_broker_response_topic, Topic, App}).
-
--spec parse_broker_request_properties(map()) -> map().
-parse_broker_request_properties(Properties) ->
-    #{p_user_property := UserProperties,
-      p_correlation_data := CorrData,
-      p_response_topic := RespTopic} = Properties,
-    {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
-    {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
-    #{type => Type,
-      method => Method,
-      correlation_data => CorrData,
-      response_topic => RespTopic}.
-
 -spec handle_message_properties(message(), client_id()) -> message().
 handle_message_properties(Message, ClientId) ->
     UpdatedProperties =
@@ -1173,6 +1028,152 @@ envelope(Message) ->
     jsx:encode(
         #{properties => to_mqtt3_envelope_properties(Properties, #{}),
           payload => Payload}).
+
+-spec create_dynsub(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
+create_dynsub(App, Version, Object, Subject) ->
+    QoS = 1,
+    Topic = authz_subscription_topic(App, Version, Object),
+    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
+
+    %% Save information about the dynamic subscription
+    mqttgw_dynsubstate:put(Subject, #{object => Object, app => App}),
+    ok.
+
+-spec delete_dynsub(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject()) -> ok.
+delete_dynsub(App, Version, Object, Subject) ->
+    Topic = authz_subscription_topic(App, Version, Object),
+    mqttgw_broker:unsubscribe(Subject, [Topic]),
+
+    %% Remove information about the dynamic subscription
+    mqttgw_dynsubstate:remove(Subject),
+    ok.
+
+-spec delete_client_dynsubs(mqttgw_dynsubstate:subject(), mqttgw_id:agent_id()) -> ok.
+delete_client_dynsubs(Subject, BrokerId) ->
+    [begin
+        #{object := Object, app := App} = Data,
+
+        %% Send a multicast event to the application
+        send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
+     end || Data <- mqttgw_dynsubstate:get(Subject)],
+
+    %% Remove information about the dynamic subscription
+    mqttgw_dynsubstate:remove(Subject),
+    ok.
+
+-spec erase_dynsubs(mqttgw_id:agent_id()) -> ok.
+erase_dynsubs(BrokerId) ->
+    mqttgw_dynsubstate:foreach(
+        fun(Subject, Data) ->
+            #{object := Object, app := App} = Data,
+
+            %% Send a multicast event to the application
+            send_dynsub_event(<<"subscription.delete">>, App, Object, Subject, BrokerId)
+        end),
+    mqttgw_dynsubstate:erase().
+
+-spec send_dynsub_response(
+    binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
+    -> ok.
+send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
+    #client_id{mode=Mode} = ClientId,
+
+    QoS = 1,
+    try mqttgw_broker:publish(
+        validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
+        envelope(
+            #message{
+                payload = jsx:encode(#{}),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_correlation_data => CorrData,
+                              p_user_property =>
+                                [ {<<"type">>, <<"response">>},
+                                  {<<"status">>, <<"200">>} ]},
+                            ClientId
+                        ),
+                        ClientId
+                    )}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending subscription success response to = '~s' "
+                "from the agent = '~s' using mode = '~s' "
+                "by the broker agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [RespTopic, agent_id(ClientId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec send_dynsub_event(
+    binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
+    mqttgw_id:agent_id())
+    -> ok.
+send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
+    ClientId = broker_client_id(BrokerId),
+    QoS = 1,
+    try mqttgw_broker:publish(
+        dynsub_event_topic(App, BrokerId),
+        envelope(
+            #message{
+                payload = jsx:encode(
+                    #{object => Object,
+                      subject => Subject}),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_user_property =>
+                                [ {<<"type">>, <<"event">>},
+                                  {<<"label">>, Label} ]},
+                            ClientId
+                        ),
+                        ClientId
+                    )}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending subscription success event to = '~s' "
+                "by the broker agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [App, mqttgw_id:format_agent_id(BrokerId), T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec dynsub_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
+dynsub_event_topic(App, BrokerId) ->
+    [<<"agents">>, mqttgw_id:format_agent_id(BrokerId),
+     <<"api">>, <<"v1">>, <<"out">>, App].
+
+-spec authz_subscription_topic(binary(), binary(), mqttgw_dynsubstate:object()) -> topic().
+authz_subscription_topic(App, Version, Object) ->
+    [<<"apps">>, App, <<"api">>, Version | Object].
+
+-spec validate_dynsub_response_topic(topic(), binary()) -> topic().
+validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
+    Topic;
+validate_dynsub_response_topic(Topic, App) ->
+    error({nomatch_app_in_broker_response_topic, Topic, App}).
+
+-spec parse_broker_request_properties(map()) -> map().
+parse_broker_request_properties(Properties) ->
+    #{p_user_property := UserProperties,
+      p_correlation_data := CorrData,
+      p_response_topic := RespTopic} = Properties,
+    {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
+    {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
+    #{type => Type,
+      method => Method,
+      correlation_data => CorrData,
+      response_topic => RespTopic}.
 
 %% =============================================================================
 %% Tests

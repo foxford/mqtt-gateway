@@ -13,7 +13,7 @@
 -type config() :: map().
 -type account_id() :: #{label := binary(), audience := binary()}.
 
--export_types([config/1, account_id/1]).
+-export_types([config/0, account_id/0]).
 
 %% =============================================================================
 %% API
