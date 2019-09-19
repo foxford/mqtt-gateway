@@ -16,7 +16,7 @@ read_config() ->
             error_logger:info_msg("[CONFIG] Stat is disabled~n"),
             disabled;
         _ ->
-            TomlConfig = mqttgw_config:read_config(),
-            Id = mqttgw_id:read_config(TomlConfig),
+            TomlConfig = mqttgw_config:read_config_file(),
+            Id = mqttgw_id:read_config_file(TomlConfig),
             {enabled, Id}
     end.
