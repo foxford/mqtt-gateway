@@ -7,6 +7,7 @@
     account_label/1,
     audience/1,
     label/1,
+    format_account_id/1,
     format_agent_id/1
 ]).
 
@@ -45,6 +46,11 @@ audience(AgentId) ->
 -spec label(agent_id()) -> binary().
 label(AgentId) ->
     maps:get(label, AgentId).
+
+-spec format_account_id(agent_id()) -> binary().
+format_account_id(AgentId) ->
+    #{account_id := AccountId} = AgentId,
+    mqttgw_authn:format_account_id(AccountId).
 
 -spec format_agent_id(agent_id()) -> binary().
 format_agent_id(AgentId) ->

@@ -150,7 +150,7 @@ handle_connect_authz_config(ClientId, AccountId) ->
 
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
-            handle_connect_success(ClientId);
+            handle_connect_stat_config(ClientId);
         {ok, {enabled, Me, Config}} ->
             handle_connect_authz(Mode, ClientId, AccountId, Me, Config);
         _ ->
@@ -165,13 +165,13 @@ handle_connect_authz_config(ClientId, AccountId) ->
     mqttgw_id:agent_id(), mqttgw_authz:config())
     -> ok | {error, error()}.
 handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
-    handle_connect_success(ClientId);
+    handle_connect_stat_config(ClientId);
 handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
     #client_id{mode=Mode} = ClientId,
 
     try mqttgw_authz:authorize(mqttgw_id:audience(Me), AccountId, Config) of
         _ ->
-            handle_connect_success(ClientId)
+            handle_connect_stat_config(ClientId)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -180,6 +180,26 @@ handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
                 "exception_type = ~p, exception_reason = ~p",
                 [Mode, agent_id(ClientId), T, R]),
             {error, #{reason_code => not_authorized}}
+    end.
+
+-spec handle_connect_stat_config(client_id()) -> ok | {error, error()}.
+handle_connect_stat_config(ClientId) ->
+    case mqttgw_state:find(stat) of
+        {ok, disabled} ->
+            handle_connect_success(ClientId);
+        {ok, {enabled, Me}} ->
+            send_audience_event(
+                #{id => agent_id(ClientId)},
+                <<"agent.enter">>,
+                Me,
+                ClientId),
+            handle_connect_success(ClientId);
+        _ ->
+            error_logger:warning_msg(
+                "Error on connect: stat config isn't found "
+                "for the agent = '~s'",
+                [agent_id(ClientId)]),
+            {error, #{reason_code => impl_specific_error}}
     end.
 
 -spec handle_connect_success(client_id()) -> ok | {error, error()}.
@@ -791,6 +811,7 @@ start() ->
     {ok, _} = application:ensure_all_started(?APP),
     mqttgw_state:put(authn, mqttgw_authn:read_config()),
     mqttgw_state:put(authz, mqttgw_authz:read_config()),
+    mqttgw_state:put(stat, mqttgw_stat:read_config()),
     ok.
 
 -spec stop() -> ok.
@@ -1077,8 +1098,8 @@ erase_dynsubs(BrokerId) ->
 -spec send_dynsub_response(
     binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
     -> ok.
-send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
-    #client_id{mode=Mode} = ClientId,
+send_dynsub_response(App, CorrData, RespTopic, BrokerId, SenderId) ->
+    #client_id{mode=Mode} = SenderId,
 
     QoS = 1,
     try mqttgw_broker:publish(
@@ -1093,9 +1114,9 @@ send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
                               p_user_property =>
                                 [ {<<"type">>, <<"response">>},
                                   {<<"status">>, <<"200">>} ]},
-                            ClientId
+                            SenderId
                         ),
-                        ClientId
+                        SenderId
                     )}),
         QoS) of
         _ ->
@@ -1107,7 +1128,7 @@ send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
                 "from the agent = '~s' using mode = '~s' "
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [RespTopic, agent_id(ClientId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
+                [RespTopic, agent_id(SenderId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -1116,7 +1137,7 @@ send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId) ->
     mqttgw_id:agent_id())
     -> ok.
 send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
-    ClientId = broker_client_id(BrokerId),
+    SenderId = broker_client_id(BrokerId),
     QoS = 1,
     try mqttgw_broker:publish(
         dynsub_event_topic(App, BrokerId),
@@ -1131,9 +1152,9 @@ send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
                             #{p_user_property =>
                                 [ {<<"type">>, <<"event">>},
                                   {<<"label">>, Label} ]},
-                            ClientId
+                            SenderId
                         ),
-                        ClientId
+                        SenderId
                     )}),
         QoS) of
         _ ->
@@ -1147,6 +1168,44 @@ send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
                 [App, mqttgw_id:format_agent_id(BrokerId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
+
+-spec send_audience_event(map(), binary(), mqttgw_id:agent_id(), client_id()) -> ok.
+send_audience_event(Payload, Label, BrokerId, ClientId) ->
+    SenderId = broker_client_id(BrokerId),
+    Topic = audience_event_topic(ClientId, BrokerId),
+    QoS = 1,
+    try mqttgw_broker:publish(
+        Topic,
+        envelope(
+            #message{
+                payload = jsx:encode(Payload),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_user_property =>
+                                [ {<<"type">>, <<"event">>},
+                                  {<<"label">>, Label} ]},
+                            SenderId
+                        ),
+                        SenderId
+                    )}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending audience event: label = '~s', topic = `~p` "
+                "by the broker agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [Label, Topic, mqttgw_id:format_agent_id(BrokerId), T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec audience_event_topic(client_id(), mqttgw_id:agent_id()) -> topic().
+audience_event_topic(ClientId, BrokerId) ->
+    [<<"apps">>, mqttgw_id:format_account_id(BrokerId),
+     <<"api">>, <<"v1">>, <<"audiences">>, ClientId#client_id.audience, <<"events">>].
 
 -spec dynsub_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
 dynsub_event_topic(App, BrokerId) ->
@@ -1255,6 +1314,7 @@ prop_onconnect() ->
             mqttgw_state:new(),
             mqttgw_state:put(authn, disabled),
             mqttgw_state:put(authz, disabled),
+            mqttgw_state:put(stat, disabled),
             ok = auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
             ok = auth_on_register_m5(Peer, SubscriberId, Username, Password, CleanSession, #{}),
             true
@@ -1310,6 +1370,7 @@ authz_onconnect_test_() ->
     %% Anyone can connect in any mode when authz is dissabled
     mqttgw_state:put(authn, {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)}),
     mqttgw_state:put(authz, disabled),
+    mqttgw_state:put(stat, disabled),
     [begin
         [begin
             ClientId =
@@ -1356,6 +1417,7 @@ message_connect_constraints_test_() ->
 
     mqttgw_state:new(),
     mqttgw_state:put(authz, disabled),
+    mqttgw_state:put(stat, disabled),
     [begin
         [begin
             [begin
