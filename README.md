@@ -31,19 +31,20 @@ docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
 docker run -ti --rm \
     -e APP_AUTHN_ENABLED=0 \
     -e APP_AUTHZ_ENABLED=0 \
+    -e APP_STAT_ENABLED=0 \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
 ## Subscribing to messages
-mosquitto_sub -h $(docker-machine ip) \
+mosquitto_sub -V 5 -h $(docker-machine ip) \
     -i 'v1/agents/test-sub.john-doe.usr.example.net' \
     -t 'foo' | jq '.'
 
 ## Publishing a message
-mosquitto_pub -h $(docker-machine ip) \
+mosquitto_pub -V 5 -h $(docker-machine ip) \
     -i 'v1/agents/test-pub.john-doe.usr.example.net' \
     -t 'foo' \
-    -m '{"payload": "bar"}'
+    -m '{}'
 ```
 
 
@@ -63,7 +64,7 @@ docker run -ti --rm \
 ## Subscribing to messages
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
@@ -73,12 +74,40 @@ APP='app.svc.example.org' \
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA' \
 USER='john-doe.usr.example.net' \
 APP='app.svc.example.org' \
-    && mosquitto_pub -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/agents/test.${USER}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
         -t "agents/test.${USER}/api/v1/out/${APP}" \
-        -m '{"payload": "bar"}'
+        -m '{}'
+```
+
+
+
+### Agent's enter & leave notifications
+
+```bash
+## Running a container with VerneMQ and the plugin
+docker run -ti --rm \
+    -v "$(pwd)/App.toml.sample:/app/App.toml" \
+    -e APP_CONFIG='/app/App.toml' \
+    -e APP_AUTHN_ENABLED=0 \
+    -e APP_AUTHZ_ENABLED=0 \
+    -p 1883:1883 \
+    sandbox/mqtt-gateway
+
+## Subscribing to messages
+OBSERVER='devops.svc.example.org' \
+BROKER='mqtt-gateway.svc.example.org' \
+    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+        -i "v1/observer-agents/test-1.${OBSERVER}" \
+        -t "apps/${BROKER}/api/v1/audiences/+/events"
+
+## Publishing a message
+mosquitto_pub -V 5 -h $(docker-machine ip) \
+    -i 'v1/agents/test-pub.john-doe.usr.example.net' \
+    -t 'foo' \
+    -n
 ```
 
 
@@ -98,41 +127,51 @@ docker run -ti --rm \
 OBSERVER='devops.svc.example.org' \
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub -V 5 -h $(docker-machine ip) \
         -i "v1/observer-agents/test-1.${OBSERVER}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
 
 ## Subscribing to the topic of app's incoming multicast messages
 OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
-        -i "v1/observer-agents/test-1.${OBSERVER}" \
+    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+        -i "v1/observer-agents/test-2.${OBSERVER}" \
         -t "agents/+/api/v1/out/${APP}" | jq '.'
 
 ## Creating a dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
 BROKER='mqtt-gateway.svc.example.org' \
-    && mosquitto_pub -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
-        -m '{"payload": "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.'${USER}'\"}", "properties": {"type": "request", "method": "subscription.create", "response_topic": "agents/test.'${USER}'/api/v1/in/'${APP}'", "correlation_data": "foobar"}}'
+        -D publish user-property 'type' 'request' \
+        -D publish user-property 'method' 'subscription.create' \
+        -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+        -D publish correlation-data 'foobar' \
+        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
 
 ## Publishing an event
 APP='app.svc.example.org' \
-    && mosquitto_pub -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
         -t "apps/${APP}/api/v1/rooms/ROOM_ID/events" \
-        -m '{"payload": "{}", "properties": {"label": "room.create"}}'
+        -D publish user-property 'type' 'event' \
+        -D publish user-property 'label' 'room.create' \
+        -m '{}'
 
 ## Deleting the dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
 BROKER='mqtt-gateway.svc.example.org' \
-    && mosquitto_pub -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
-        -m '{"payload": "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.'${USER}'\"}", "properties": {"type": "request", "method": "subscription.delete", "response_topic": "agents/test.'${USER}'/api/v1/in/'${APP}'", "correlation_data": "foobar"}}'
+        -D publish user-property 'type' 'request' \
+        -D publish user-property 'method' 'subscription.delete' \
+        -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+        -D publish correlation-data 'foobar' \
+        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
 ```
 
 ```erlang
@@ -149,6 +188,7 @@ Shell got {publish,#{client_pid => <0.277.0>,dup => false,
                      topic =>
                          <<"apps/app.svc.example.org/api/v1/rooms/ROOM_ID/events">>}}
 ```
+
 
 
 
