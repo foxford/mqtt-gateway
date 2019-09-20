@@ -855,6 +855,68 @@ verify_subscribe_topic(Topic, _AccountId, AgentId, Mode)
     -> error({nomatch_subscribe_topic, Topic, AgentId, Mode}).
 
 %% =============================================================================
+%% API: Broker Start
+%% =============================================================================
+
+-spec handle_broker_start() -> ok.
+handle_broker_start() ->
+    handle_broker_start_stat_config().
+
+-spec handle_broker_start_stat_config() -> ok.
+handle_broker_start_stat_config() ->
+    case mqttgw_state:find(stat) of
+        {ok, {enabled, BMe}} ->
+            BrokerId = broker_client_id(BMe),
+            send_audience_event(
+                #{id => agent_id(BrokerId)},
+                <<"agent.enter">>,
+                BrokerId,
+                BrokerId),
+            handle_broker_start_success();
+        _ ->
+            handle_broker_start_success()
+    end.
+
+handle_broker_start_success() ->
+    ok.
+
+%% =============================================================================
+%% API: Broker Stop
+%% =============================================================================
+
+-spec handle_broker_stop() -> ok.
+handle_broker_stop() ->
+    handle_broker_stop_authz_config().
+
+-spec handle_broker_stop_authz_config() -> ok.
+handle_broker_stop_authz_config() ->
+    case mqttgw_state:find(authz) of
+        {ok, {enabled, BMe, _Config}} ->
+            erase_dynsubs(broker_client_id(BMe)),
+            handle_broker_stop_stat_config();
+        _ ->
+            handle_broker_stop_stat_config()
+    end.
+
+-spec handle_broker_stop_stat_config() -> ok.
+handle_broker_stop_stat_config() ->
+    case mqttgw_state:find(stat) of
+        {ok, {enabled, BMe}} ->
+            BrokerId = broker_client_id(BMe),
+            send_audience_event(
+                #{id => agent_id(BrokerId)},
+                <<"agent.leave">>,
+                BrokerId,
+                BrokerId),
+            handle_broker_stop_success();
+        _ ->
+            handle_broker_stop_success()
+    end.
+
+handle_broker_stop_success() ->
+    ok.
+
+%% =============================================================================
 %% Plugin Callbacks
 %% =============================================================================
 
@@ -864,16 +926,12 @@ start() ->
     mqttgw_state:put(authn, mqttgw_authn:read_config()),
     mqttgw_state:put(authz, mqttgw_authz:read_config()),
     mqttgw_state:put(stat, mqttgw_stat:read_config()),
+    handle_broker_start(),
     ok.
 
 -spec stop() -> ok.
 stop() ->
-    case mqttgw_state:find(authz) of
-        {ok, {enabled, BMe, _}} ->
-            erase_dynsubs(broker_client_id(BMe));
-        _ ->
-            ok
-    end.
+    handle_broker_stop().
 
 auth_on_register(
     _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
