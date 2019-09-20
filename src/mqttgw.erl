@@ -151,8 +151,8 @@ handle_connect_authz_config(ClientId, AccountId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             handle_connect_stat_config(ClientId);
-        {ok, {enabled, Me, Config}} ->
-            handle_connect_authz(Mode, ClientId, AccountId, Me, Config);
+        {ok, {enabled, BMe, Config}} ->
+            handle_connect_authz(Mode, ClientId, AccountId, broker_client_id(BMe), Config);
         _ ->
             error_logger:warning_msg(
                 "Error on connect: authz config isn't found for the agent = '~s'",
@@ -162,14 +162,14 @@ handle_connect_authz_config(ClientId, AccountId) ->
 
 -spec handle_connect_authz(
     connection_mode(), client_id(), mqttgw_authn:account_id(),
-    mqttgw_id:agent_id(), mqttgw_authz:config())
+    client_id(), mqttgw_authz:config())
     -> ok | {error, error()}.
-handle_connect_authz(default, ClientId, _AccountId, _Me, _Config) ->
+handle_connect_authz(default, ClientId, _AccountId, _BrokerId, _Config) ->
     handle_connect_stat_config(ClientId);
-handle_connect_authz(_Mode, ClientId, AccountId, Me, Config) ->
+handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config) ->
     #client_id{mode=Mode} = ClientId,
 
-    try mqttgw_authz:authorize(mqttgw_id:audience(Me), AccountId, Config) of
+    try mqttgw_authz:authorize(BrokerId#client_id.audience, AccountId, Config) of
         _ ->
             handle_connect_stat_config(ClientId)
     catch
@@ -187,11 +187,11 @@ handle_connect_stat_config(ClientId) ->
     case mqttgw_state:find(stat) of
         {ok, disabled} ->
             handle_connect_success(ClientId);
-        {ok, {enabled, Me}} ->
+        {ok, {enabled, BMe}} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
                 <<"agent.enter">>,
-                Me,
+                broker_client_id(BMe),
                 ClientId),
             handle_connect_success(ClientId);
         _ ->
@@ -241,8 +241,8 @@ handle_disconnect_authz_config(Conn, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             handle_disconnect_stat_config(ClientId);
-        {ok, {enabled, Me, _}} ->
-            delete_client_dynsubs(Conn, Me),
+        {ok, {enabled, BMe, _}} ->
+            delete_client_dynsubs(Conn, broker_client_id(BMe)),
             handle_disconnect_stat_config(ClientId);
         _ ->
             error_logger:warning_msg(
@@ -256,11 +256,11 @@ handle_disconnect_stat_config(ClientId) ->
     case mqttgw_state:find(stat) of
         {ok, disabled} ->
             handle_disconnect_success(ClientId);
-        {ok, {enabled, Me}} ->
+        {ok, {enabled, BMe}} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
                 <<"agent.leave">>,
-                Me,
+                broker_client_id(BMe),
                 ClientId),
             handle_disconnect_success(ClientId);
         _ ->
@@ -392,8 +392,8 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             ok;
-        {ok, {enabled, Me, _Config}} ->
-            handle_publish_authz_topic(Topic, Message, Me, ClientId);
+        {ok, {enabled, BMe, _Config}} ->
+            handle_publish_authz_topic(Topic, Message, broker_client_id(BMe), ClientId);
         _ ->
             error_logger:warning_msg(
                 "Error on publish: authz config isn't found for the agent = '~s'",
@@ -401,15 +401,15 @@ handle_publish_authz_config(Topic, Message, ClientId) ->
             {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_publish_authz_topic(topic(), message(), mqttgw_id:agent_id(), client_id())
+-spec handle_publish_authz_topic(topic(), message(), client_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
-            BrokerAccountId = mqttgw_authn:format_account_id(mqttgw_id:account_id(BrokerId)),
-            handle_publish_authz_broker_request(Topic, Message, BrokerAccountId, BrokerId, ClientId)
+            handle_publish_authz_broker_request(
+                Topic, Message, account_id(BrokerId), BrokerId, ClientId)
     catch
         T:R ->
             error_logger:error_msg(
@@ -421,7 +421,7 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     end.
 
 -spec handle_publish_authz_broker_request(
-    topic(), message(), binary(), mqttgw_id:agent_id(), client_id())
+    topic(), message(), binary(), client_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_request(
     [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
@@ -468,7 +468,7 @@ handle_publish_authz_broker_request(_Topic, _Message, _BrokerAccoundId, _BrokerI
 
 -spec handle_publish_authz_broker_dynsub_create_request(
     binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
-    binary(), binary(), mqttgw_id:agent_id(), client_id())
+    binary(), binary(), client_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_dynsub_create_request(
     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
@@ -489,7 +489,7 @@ handle_publish_authz_broker_dynsub_create_request(
 
 -spec handle_publish_authz_broker_dynsub_delete_request(
     binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
-    binary(), binary(), mqttgw_id:agent_id(), client_id())
+    binary(), binary(), client_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_dynsub_delete_request(
     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId) ->
@@ -869,8 +869,8 @@ start() ->
 -spec stop() -> ok.
 stop() ->
     case mqttgw_state:find(authz) of
-        {ok, {enabled, Me, _}} ->
-            erase_dynsubs(Me);
+        {ok, {enabled, BMe, _}} ->
+            erase_dynsubs(broker_client_id(BMe));
         _ ->
             ok
     end.
@@ -1111,7 +1111,7 @@ delete_dynsub(App, Version, Object, Subject) ->
     mqttgw_dynsubstate:remove(Subject),
     ok.
 
--spec delete_client_dynsubs(mqttgw_dynsubstate:subject(), mqttgw_id:agent_id()) -> ok.
+-spec delete_client_dynsubs(mqttgw_dynsubstate:subject(), client_id()) -> ok.
 delete_client_dynsubs(Subject, BrokerId) ->
     [begin
         #{object := Object, app := App} = Data,
@@ -1124,7 +1124,7 @@ delete_client_dynsubs(Subject, BrokerId) ->
     mqttgw_dynsubstate:remove(Subject),
     ok.
 
--spec erase_dynsubs(mqttgw_id:agent_id()) -> ok.
+-spec erase_dynsubs(client_id()) -> ok.
 erase_dynsubs(BrokerId) ->
     mqttgw_dynsubstate:foreach(
         fun(Subject, Data) ->
@@ -1136,7 +1136,7 @@ erase_dynsubs(BrokerId) ->
     mqttgw_dynsubstate:erase().
 
 -spec send_dynsub_response(
-    binary(), binary(), binary(), mqttgw_id:agent_id(), client_id())
+    binary(), binary(), binary(), client_id(), client_id())
     -> ok.
 send_dynsub_response(App, CorrData, RespTopic, BrokerId, SenderId) ->
     #client_id{mode=Mode} = SenderId,
@@ -1168,19 +1168,18 @@ send_dynsub_response(App, CorrData, RespTopic, BrokerId, SenderId) ->
                 "from the agent = '~s' using mode = '~s' "
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [RespTopic, agent_id(SenderId), Mode, mqttgw_id:format_agent_id(BrokerId), T, R]),
+                [RespTopic, agent_id(SenderId), Mode, agent_id(BrokerId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
 -spec send_dynsub_event(
     binary(), binary(), mqttgw_dynsubstate:object(), mqttgw_dynsubstate:subject(),
-    mqttgw_id:agent_id())
+    client_id())
     -> ok.
-send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
-    SenderId = broker_client_id(BrokerId),
+send_dynsub_event(Label, App, Object, Subject, SenderId) ->
     QoS = 1,
     try mqttgw_broker:publish(
-        dynsub_event_topic(App, BrokerId),
+        dynsub_event_topic(App, SenderId),
         envelope(
             #message{
                 payload = jsx:encode(
@@ -1205,14 +1204,13 @@ send_dynsub_event(Label, App, Object, Subject, BrokerId) ->
                 "Error sending subscription success event to = '~s' "
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [App, mqttgw_id:format_agent_id(BrokerId), T, R]),
+                [App, agent_id(SenderId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec send_audience_event(map(), binary(), mqttgw_id:agent_id(), client_id()) -> ok.
-send_audience_event(Payload, Label, BrokerId, ClientId) ->
-    SenderId = broker_client_id(BrokerId),
-    Topic = audience_event_topic(ClientId, BrokerId),
+-spec send_audience_event(map(), binary(), client_id(), client_id()) -> ok.
+send_audience_event(Payload, Label, SenderId, ClientId) ->
+    Topic = audience_event_topic(ClientId, SenderId),
     QoS = 1,
     try mqttgw_broker:publish(
         Topic,
@@ -1238,18 +1236,18 @@ send_audience_event(Payload, Label, BrokerId, ClientId) ->
                 "Error sending audience event: label = '~s', topic = `~p` "
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Label, Topic, mqttgw_id:format_agent_id(BrokerId), T, R]),
+                [Label, Topic, agent_id(SenderId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec audience_event_topic(client_id(), mqttgw_id:agent_id()) -> topic().
+-spec audience_event_topic(client_id(), client_id()) -> topic().
 audience_event_topic(ClientId, BrokerId) ->
-    [<<"apps">>, mqttgw_id:format_account_id(BrokerId),
+    [<<"apps">>, account_id(BrokerId),
      <<"api">>, <<"v1">>, <<"audiences">>, ClientId#client_id.audience, <<"events">>].
 
--spec dynsub_event_topic(binary(), mqttgw_id:agent_id()) -> topic().
+-spec dynsub_event_topic(binary(), client_id()) -> topic().
 dynsub_event_topic(App, BrokerId) ->
-    [<<"agents">>, mqttgw_id:format_agent_id(BrokerId),
+    [<<"agents">>, agent_id(BrokerId),
      <<"api">>, <<"v1">>, <<"out">>, App].
 
 -spec authz_subscription_topic(binary(), binary(), mqttgw_dynsubstate:object()) -> topic().
@@ -1380,7 +1378,7 @@ authz_onconnect_test_() ->
 
     AgentLabel = <<"foo">>,
     AccountLabel = <<"bar">>,
-    SvcAud = MeAud = <<"svc.example.org">>,
+    SvcAud = BMeAud = <<"svc.example.org">>,
     SvcAccountId = #{label => AccountLabel, audience => SvcAud},
     UsrAud = <<"usr.example.net">>,
 
@@ -1390,8 +1388,8 @@ authz_onconnect_test_() ->
     #{password := UsrPassword,
       config := UsrAuthnConfig} =
         make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
-    #{me := Me,
-      config := AuthzConfig} = make_sample_me(MeAud, [SvcAccountId]),
+    #{me := BMe,
+      config := AuthzConfig} = make_sample_me(BMeAud, [SvcAccountId]),
 
     Test = [
         { "usr: allowed",
@@ -1422,7 +1420,7 @@ authz_onconnect_test_() ->
     %% 2 - authn: enabled, authz: enabled
     %% User accounts can connect only in 'default' mode
     %% Service accounts can connect in any mode
-    mqttgw_state:put(authz, {enabled, Me, AuthzConfig}),
+    mqttgw_state:put(authz, {enabled, BMe, AuthzConfig}),
     [begin
         [begin
             ClientId =
@@ -1852,14 +1850,14 @@ make_sample_password(AccountLabel, Audience, Issuer) ->
     #{password => Token,
       config => Config}.
 
-make_sample_me(MeAud, Trusted) ->
-    Me = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => MeAud}},
+make_sample_me(BMeAud, Trusted) ->
+    BMe = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => BMeAud}},
     Config =
-        #{MeAud =>
+        #{BMeAud =>
           #{type => trusted,
             trusted => gb_sets:from_list(Trusted)}},
 
-    #{me => Me,
+    #{me => BMe,
       config => Config}.
 
 make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode) ->
