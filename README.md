@@ -180,13 +180,24 @@ BROKER='mqtt-gateway.svc.example.org' \
 emqx_client:connect(C).
 
 flush().
-Shell got {publish,#{client_pid => <0.277.0>,dup => false,
-                     packet_id => undefined,
-                     payload =>
-                         <<"{\"payload\":\"{}\",\"properties\":{\"account_label\":\"app\",\"agent_label\":\"test\",\"audience\":\"svc.example.org\",\"label\":\"room.create\",\"type\":\"event\"}}">>,
-                     properties => undefined,qos => 0,retain => false,
-                     topic =>
-                         <<"apps/app.svc.example.org/api/v1/rooms/ROOM_ID/events">>}}
+%% Shell got {publish,#{client_pid => <0.277.0>,dup => false,
+%%                      packet_id => undefined,
+%%                      payload =>
+%%                          <<"{\"payload\":\"{}\",\"properties\":{\"account_label\":\"app\",\"agent_label\":\"test\",\"audience\":\"svc.example.org\",\"label\":\"room.create\",\"type\":\"event\"}}">>,
+%%                      properties => undefined,qos => 0,retain => false,
+%%                      topic =>
+%%                          <<"apps/app.svc.example.org/api/v1/rooms/ROOM_ID/events">>}}
+```
+
+```erlang
+%% We can verify that the subscription was created from the VerneMQ terminal
+mqttgw_dynsub:list(<<"v1/agents/test.john.usr.example.net">>).
+
+%% [{[<<"apps">>,<<"app.svc.example.org">>,<<"api">>,<<"v1">>,
+%%    <<"rooms">>,<<"ROOM_ID">>,<<"events">>],
+%%   #{app => <<"app.svc.example.org">>,
+%%     object => [<<"rooms">>,<<"ROOM_ID">>,<<"events">>],
+%%     version => <<"v1">>}}]
 ```
 
 
