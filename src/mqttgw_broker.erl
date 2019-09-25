@@ -2,6 +2,7 @@
 
 %% API
 -export([
+    list_connections/0,
     subscribe/2,
     unsubscribe/2,
     publish/3
@@ -10,6 +11,22 @@
 %% =============================================================================
 %% API
 %% =============================================================================
+
+-spec list_connections() -> [mqttgw:connection()].
+list_connections() ->
+    vmq_subscriber_db:fold(
+        fun
+            ({{_, Subject}, _}, Acc) ->
+                [Subject|Acc];
+            (Item, Acc) ->
+                error_logger:error_msg(
+                    "Error retrieving a list of the broker connections: "
+                    "invalid format of the list item = '~p', "
+                    "the item is ignored",
+                    [Item]),
+                Acc
+        end,
+        []).
 
 %% Create a subscription for the particular client.
 %% We can verify the fact that subscription has been created by calling:
