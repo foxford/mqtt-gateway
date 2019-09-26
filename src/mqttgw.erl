@@ -1160,17 +1160,47 @@ create_dynsub(Subject, Data) ->
     QoS = 1,
     Topic = authz_subscription_topic(Data),
     mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
+
+    %% TODO: remove the local state
+    %% START >>>>>
+    %% We preserve (duplicate) information about the dynamic subscription to a local state
+    %% to be able to send an 'subscription.delete' event in the future.
+    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
+    %% https://github.com/vernemq/vernemq/issues/1326
+    mqttgw_dynsubstate:put(Subject, Data),
+    %% <<<<< END
     ok.
 
 -spec delete_dynsub(mqttgw_dynsub:subject(), mqttgw_dynsub:data()) -> ok.
 delete_dynsub(Subject, Data) ->
     Topic = authz_subscription_topic(Data),
     mqttgw_broker:unsubscribe(Subject, [Topic]),
+
+    %% TODO: remove the local state
+    %% START >>>>>
+    %% We remove preserved information about the dynamic subscription from a local state.
+    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
+    %% https://github.com/vernemq/vernemq/issues/1326
+    mqttgw_dynsubstate:remove(Subject, Data),
+    %% <<<<< END
     ok.
 
 -spec delete_client_dynsubs(mqttgw_dynsub:subject(), client_id()) -> ok.
 delete_client_dynsubs(Subject, BrokerId) ->
-    DynSubL = mqttgw_dynsub:list(Subject),
+    %% TODO: remove the local state
+    %% NOTE: In the case when a dynamic subscription was created for an offline client,
+    %% even though it later connects with 'clean_session=false' flushing subscriptions
+    %% in the internal state of the broker instance,
+    %% the event 'subscription.delete' will be sent.
+    %% START >>>>>
+    %% We read preserved information about the dynamic subscription from a local state
+    %% because the same information in the internal state of the broker is already flushed.
+    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
+    %% https://github.com/vernemq/vernemq/issues/1326
+    DynSubL = mqttgw_dynsubstate:get(Subject),
+    %% <<<<< END
+    %% TODO: uncomment the line bellow
+    % DynSubL = mqttgw_dynsub:list(Subject),
 
     %% Send a multicast event to the application
     [send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId) || Data <- DynSubL],

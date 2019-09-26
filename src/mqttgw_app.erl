@@ -14,6 +14,12 @@
 
 start(_StartType, _StartArgs) ->
     mqttgw_state:new(),
+    %% TODO: remove the local state
+    %% START >>>>>
+    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
+    %% https://github.com/vernemq/vernemq/issues/1326
+    mqttgw_dynsubstate:new(),
+    %% <<<<< END
     mqttgw_sup:start_link().
 
 stop(_State) ->
