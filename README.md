@@ -138,13 +138,29 @@ APP='app.svc.example.org' \
         -i "v1/observer-agents/test-2.${OBSERVER}" \
         -t "agents/+/api/v1/out/${APP}" | jq '.'
 
+# NOTE: will only be possible with resolving of the 'issue:1326'.
+# https://github.com/vernemq/vernemq/issues/1326
+#
+# ## Creating a dynamic subscription
+# APP='app.svc.example.org' \
+# USER='john.usr.example.net' \
+# BROKER='mqtt-gateway.svc.example.org' \
+#     && mosquitto_pub -V 5 -h $(docker-machine ip) \
+#         -i "v1/service-agents/test.${APP}" \
+#         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+#         -D publish user-property 'type' 'request' \
+#         -D publish user-property 'method' 'subscription.create' \
+#         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+#         -D publish correlation-data 'foobar' \
+#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
+
 ## Creating a dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
 BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
-        -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+        -t "agents/alpha.${BROKER}/api/v1/in/${APP}" \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.create' \
         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
@@ -160,13 +176,29 @@ APP='app.svc.example.org' \
         -D publish user-property 'label' 'room.create' \
         -m '{}'
 
+# NOTE: will only be possible with resolving of the 'issue:1326'.
+# https://github.com/vernemq/vernemq/issues/1326
+#
+# ## Deleting the dynamic subscription
+# APP='app.svc.example.org' \
+# USER='john.usr.example.net' \
+# BROKER='mqtt-gateway.svc.example.org' \
+#     && mosquitto_pub -V 5 -h $(docker-machine ip) \
+#         -i "v1/service-agents/test.${APP}" \
+#         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+#         -D publish user-property 'type' 'request' \
+#         -D publish user-property 'method' 'subscription.delete' \
+#         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+#         -D publish correlation-data 'foobar' \
+#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
+
 ## Deleting the dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
 BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
-        -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+        -t "agents/alpha.${BROKER}/api/v1/in/${APP}" \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.delete' \
         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
