@@ -49,7 +49,7 @@
 %% Types
 
 % Types
--type qos() :: 1..3.
+-type qos() :: 0..2.
 -type topic() :: [binary()].
 -type subscription() :: {topic(), qos()}.
 -type connection() :: binary().
@@ -416,7 +416,7 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
             handle_publish_authz_broker_request(
-                Topic, Message, account_id(BrokerId), BrokerId, ClientId)
+                Topic, Message, account_id(BrokerId), agent_id(BrokerId), BrokerId, ClientId)
     catch
         T:R ->
             error_logger:error_msg(
@@ -428,12 +428,32 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId) ->
     end.
 
 -spec handle_publish_authz_broker_request(
-    topic(), message(), binary(), client_id(), client_id())
+    topic(), message(), binary(), binary(), client_id(), client_id())
     -> ok | {error, error()}.
 handle_publish_authz_broker_request(
     [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
-    #message{payload = Payload, properties = Properties},
-    BrokerAccoundId, BrokerId, ClientId) ->
+    Message, BrokerAccoundId, _BrokerAgentId, BrokerId, ClientId) ->
+        handle_publish_authz_broker_request_payload(Version, Message, BrokerId, ClientId);
+%% TODO: remove the local state
+%% START >>>>>
+%% The unicast requests don't have any advantages over multicast ones,
+%% and add a possibility of creating a bottle neck.
+%% The only reason we need them now is the local state.
+%% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
+%% https://github.com/vernemq/vernemq/issues/1326
+handle_publish_authz_broker_request(
+    [<<"agents">>, BrokerAgentId, <<"api">>, Version, <<"in">>, _],
+    Message, _BrokerAccoundId, BrokerAgentId, BrokerId, ClientId) ->
+        handle_publish_authz_broker_request_payload(Version, Message, BrokerId, ClientId);
+%% <<<<< END
+handle_publish_authz_broker_request(
+    _Topic, _Message, _BrokerAccoundId, _BrokerAgentId, _BrokerId, _ClientId) ->
+        ok.
+
+-spec handle_publish_authz_broker_request_payload(binary(), message(), client_id(), client_id())
+    -> ok | {error, error()}.
+handle_publish_authz_broker_request_payload(
+    Version, #message{payload = Payload, properties = Properties}, BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
@@ -469,9 +489,7 @@ handle_publish_authz_broker_request(
                 "exception_type = ~p, exception_reason = ~p",
                 [Payload, Properties, agent_id(ClientId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
-    end;
-handle_publish_authz_broker_request(_Topic, _Message, _BrokerAccoundId, _BrokerId, _ClientId) ->
-    ok.
+    end.
 
 -spec handle_publish_authz_broker_dynsub_create_request(
     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
