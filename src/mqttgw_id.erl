@@ -2,6 +2,7 @@
 
 %% API
 -export([
+    read_config/0,
     read_config_file/1,
     account_id/1,
     account_label/1,
@@ -20,16 +21,13 @@
 %% API
 %% =============================================================================
 
+-spec read_config() -> agent_id().
+read_config() ->
+    handle_config_file(error).
+
 -spec read_config_file(toml:config()) -> agent_id().
 read_config_file(TomlConfig) ->
-    AgentLabel =
-        case os:getenv("APP_AGENT_LABEL") of
-            false -> parse_agent_label(TomlConfig);
-            Val -> list_to_binary(Val)
-        end,
-
-    #{label => AgentLabel,
-      account_id => parse_id(TomlConfig)}.
+    handle_config_file({ok, TomlConfig}).
 
 -spec account_id(agent_id()) -> mqttgw_authn:account_id().
 account_id(AgentId) ->
@@ -61,6 +59,32 @@ format_agent_id(AgentId) ->
 %% =============================================================================
 %% Internal functions
 %% =============================================================================
+
+-spec handle_config_file({ok, toml:config()} | error) -> agent_id().
+handle_config_file(MaybeTomlConfig) ->
+    Config = fun
+        ({ok, TomlConfig}) -> TomlConfig;
+        (error) -> mqttgw_config:read_config_file()
+    end,
+
+    AgentLabel =
+        case os:getenv("APP_AGENT_LABEL") of
+            false ->
+                parse_agent_label(Config(MaybeTomlConfig));
+            Val0 ->
+                list_to_binary(Val0)
+        end,
+
+    AccountId =
+        case os:getenv("APP_ACCOUNT_ID") of
+            false ->
+                parse_id(Config(MaybeTomlConfig));
+            Val1 ->
+                mqttgw_authn:parse_account_id(list_to_binary(Val1))
+        end,
+
+    #{label => AgentLabel,
+      account_id => AccountId}.
 
 -spec parse_id(toml:config()) -> mqttgw_authn:account_id().
 parse_id(TomlConfig) ->

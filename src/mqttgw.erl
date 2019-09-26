@@ -312,9 +312,10 @@ handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId) -
 handle_publish_mqtt3(Topic, InputPayload, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
+    BrokerId = broker_client_id(mqttgw_state:get(id)),
     try handle_message_properties(
         handle_mqtt3_envelope_properties(
-            validate_envelope(parse_envelope(Mode, InputPayload))), ClientId) of
+            validate_envelope(parse_envelope(Mode, InputPayload))), ClientId, BrokerId) of
         Message ->
             case handle_publish_authz(Topic, Message, ClientId) of
                 ok ->
@@ -355,8 +356,9 @@ handle_publish_mqtt5_constraints(Topic, InputPayload, InputProperties, QoS, IsRe
 handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
+    BrokerId = broker_client_id(mqttgw_state:get(id)),
     InputMessage = #message{payload = InputPayload, properties = InputProperties},
-    try handle_message_properties(InputMessage, ClientId) of
+    try handle_message_properties(InputMessage, ClientId, BrokerId) of
         Message ->
             case handle_publish_authz(Topic, Message, ClientId) of
                 ok ->
@@ -515,11 +517,11 @@ handle_publish_authz_broker_dynsub_delete_request(
     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId),
     ok.
 
--spec handle_message_properties(message(), client_id()) -> message().
-handle_message_properties(Message, ClientId) ->
+-spec handle_message_properties(message(), client_id(), client_id()) -> message().
+handle_message_properties(Message, ClientId, BrokerId) ->
     UpdatedProperties =
         validate_message_properties(
-            update_message_properties(Message#message.properties, ClientId), ClientId),
+            update_message_properties(Message#message.properties, ClientId, BrokerId), ClientId),
 
     Message#message{
         properties = UpdatedProperties}.
@@ -586,8 +588,12 @@ verify_response_topic([<<"agents">>, Me, <<"api">>, _, <<"in">>, _], Me) ->
 verify_response_topic(Topic, AgentId) ->
     error({bad_response_topic, Topic, AgentId}).
 
--spec update_message_properties(map(), client_id()) -> map().
-update_message_properties(Properties, ClientId) ->
+-spec update_message_properties(map(), client_id(), client_id()) -> map().
+update_message_properties(Properties, ClientId, BrokerId) ->
+    #client_id{
+        agent_label=BrokerAgentLabel,
+        account_label=BrokerAccountLabel,
+        audience=BrokerAudience} = BrokerId,
     #client_id{
         mode=Mode,
         agent_label=AgentLabel,
@@ -624,7 +630,14 @@ update_message_properties(Properties, ClientId) ->
             <<"connection_version">> => VersionStr,
             <<"connection_mode">> => ModeStr},
 
-    Properties#{p_user_property => maps:to_list(UserProperties3)}.
+    %% Additional broker properties
+    UserProperties4 =
+        UserProperties3#{
+            <<"broker_agent_label">> => BrokerAgentLabel,
+            <<"broker_account_label">> => BrokerAccountLabel,
+            <<"broker_audience">> => BrokerAudience},
+
+    Properties#{p_user_property => maps:to_list(UserProperties4)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -930,6 +943,7 @@ handle_broker_stop_success() ->
 -spec start() -> ok.
 start() ->
     {ok, _} = application:ensure_all_started(?APP),
+    mqttgw_state:put(id, mqttgw_id:read_config()),
     mqttgw_state:put(authn, mqttgw_authn:read_config()),
     mqttgw_state:put(authz, mqttgw_authz:read_config()),
     mqttgw_state:put(stat, mqttgw_stat:read_config()),
@@ -1234,7 +1248,8 @@ send_dynsub_response(App, CorrData, RespTopic, BrokerId, SenderId) ->
                               p_user_property =>
                                 [ {<<"type">>, <<"response">>},
                                   {<<"status">>, <<"200">>} ]},
-                            SenderId
+                            SenderId,
+                            BrokerId
                         ),
                         SenderId
                     )}),
@@ -1270,6 +1285,7 @@ send_dynsub_event(Label, Subject, Data, SenderId) ->
                             #{p_user_property =>
                                 [ {<<"type">>, <<"event">>},
                                   {<<"label">>, Label} ]},
+                            SenderId,
                             SenderId
                         ),
                         SenderId
@@ -1302,6 +1318,7 @@ send_audience_event(Payload, Label, SenderId, ClientId) ->
                             #{p_user_property =>
                                 [ {<<"type">>, <<"event">>},
                                   {<<"label">>, Label} ]},
+                            SenderId,
                             SenderId
                         ),
                         SenderId
@@ -1561,8 +1578,10 @@ prop_onpublish() ->
         begin
             QoS = minimal_constraint(qos),
             IsRetain = minimal_constraint(retain),
+            BMe = make_sample_me(),
 
             mqttgw_state:new(),
+            mqttgw_state:put(id, BMe),
             mqttgw_state:put(authz, disabled),
             #client_id{
                 mode=Mode,
@@ -1570,6 +1589,10 @@ prop_onpublish() ->
                 account_label=AccountLabel,
                 audience=Audience} = parse_client_id(element(2, SubscriberId)),
             {VersionStr, ModeStr} = connection_versionmode(Mode),
+            ExpectedBrokerL =
+                [ {<<"broker_agent_label">>, mqttgw_id:label(BMe)},
+                  {<<"broker_account_label">>, mqttgw_id:account_label(BMe)},
+                  {<<"broker_audience">>, mqttgw_id:audience(BMe)} ],
             ExpectedConnectionL =
                 [ {<<"connection_version">>, VersionStr},
                   {<<"connection_mode">>, ModeStr} ],
@@ -1578,7 +1601,8 @@ prop_onpublish() ->
                   {<<"account_label">>, AccountLabel},
                   {<<"audience">>, Audience} ],
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
-            ExpectedUserL = [{<<"type">>, <<"event">>} | ExpectedAuthnUserL ++ ExpectedConnectionL],
+            ExpectedUserL = [{<<"type">>, <<"event">>}
+                | ExpectedAuthnUserL ++ ExpectedConnectionL ++ ExpectedBrokerL],
             ExpectedProperties = #{p_user_property => ExpectedUserL},
 
             %% MQTT 5
@@ -1636,6 +1660,8 @@ bridge_missing_properties_onpublish_test_() ->
     QoS = minimal_constraint(qos),
     IsRetain = minimal_constraint(retain),
     ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>, bridge),
+    BMe = make_sample_me(),
+
     Test =
         [{"missing properties", #{}},
          {"missing agent_label", #{<<"account_label">> => <<>>, <<"audience">> => <<>>}},
@@ -1643,6 +1669,7 @@ bridge_missing_properties_onpublish_test_() ->
          {"missing audience", #{<<"agent_label">> => <<>>, <<"account_label">> => <<>>}}],
 
     mqttgw_state:new(),
+    mqttgw_state:put(id, BMe),
     mqttgw_state:put(authz, disabled),
     [begin
         Message = jsx:encode(#{payload => <<>>, properties => Properties}),
@@ -1732,6 +1759,7 @@ message_publish_constraints_test_() ->
     end || {Desc, QoSL, RetainL, Modes, Expect} <- Test].
 
 message_properties_test_() ->
+    BrokerId = make_sample_broker_client_id(),
     ClientId = fun(Mode) ->
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
     end,
@@ -1801,7 +1829,7 @@ message_properties_test_() ->
         [begin
             Message = make_sample_message_bridgecompat(Mode, <<>>, Props),
             Result =
-                try handle_message_properties(Message, ClientId(Mode)) of
+                try handle_message_properties(Message, ClientId(Mode), BrokerId) of
                     _ ->
                         ok
                 catch
@@ -1941,6 +1969,15 @@ make_sample_me(BMeAud, Trusted) ->
 
     #{me => BMe,
       config => Config}.
+
+make_sample_me() ->
+    #{label => <<"alpha">>,
+      account_id =>
+        #{label => <<"mqtt-gateway">>,
+          audience => <<"example.org">>}}.
+
+make_sample_broker_client_id() ->
+    broker_client_id(make_sample_me()).
 
 make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode) ->
     #client_id{
