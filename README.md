@@ -32,6 +32,8 @@ docker run -ti --rm \
     -e APP_AUTHN_ENABLED=0 \
     -e APP_AUTHZ_ENABLED=0 \
     -e APP_STAT_ENABLED=0 \
+    -e APP_AGENT_LABEL=alpha \
+    -e APP_ACCOUNT_ID=mqtt-gateway.dev.svc.example.org \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
@@ -93,6 +95,9 @@ docker run -ti --rm \
     -e APP_CONFIG='/app/App.toml' \
     -e APP_AUTHN_ENABLED=0 \
     -e APP_AUTHZ_ENABLED=0 \
+    -e APP_STAT_ENABLED=0 \
+    -e APP_AGENT_LABEL=alpha \
+    -e APP_ACCOUNT_ID=mqtt-gateway.dev.svc.example.org \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
