@@ -157,12 +157,12 @@ APP='app.svc.example.org' \
 #         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
 
 ## Creating a dynamic subscription
+# Note that the agent must be subscribed to the in-topic: "agents/test.${USER}/api/v1/in/${APP}"
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
-BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
-        -t "agents/alpha.${BROKER}/api/v1/in/${APP}" \
+        -t "agents/test.${USER}/api/v1/in/${APP}" \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.create' \
         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
@@ -197,10 +197,9 @@ APP='app.svc.example.org' \
 ## Deleting the dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
-BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
-        -t "agents/alpha.${BROKER}/api/v1/in/${APP}" \
+        -t "agents/test.${USER}/api/v1/in/${APP}" \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.delete' \
         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
@@ -211,7 +210,8 @@ BROKER='mqtt-gateway.svc.example.org' \
 ```erlang
 %% We can verify receiving the event on newly created subscription using MQTT client
 {ok, C} = emqx_client:start_link([{host, {192,168,99,100}}, {port, 1883}, {proto_ver, v5}, {client_id, <<"v1/agents/test.john.usr.example.net">>}]),
-emqx_client:connect(C).
+emqx_client:connect(C),
+spawn(fun() -> emqx_client:subscribe(C, <<"agents/test.john.usr.example.net/api/v1/in/+">>, 1) end).
 
 flush().
 %% Shell got {publish,#{client_pid => <0.277.0>,dup => false,
