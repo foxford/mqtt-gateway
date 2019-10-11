@@ -794,7 +794,8 @@ handle_deliver_authz_broker_request(Topic, Message, BrokerId, ClientId) ->
     binary(), binary(), message(), client_id(), client_id())
     -> message().
 handle_deliver_authz_broker_request_payload(
-    Version, App, #message{payload = Payload, properties = Properties}, BrokerId, ClientId) ->
+    Version, App, #message{payload = Payload, properties = Properties} =Message,
+    BrokerId, ClientId) ->
     #client_id{mode=Mode} = ClientId,
 
     try {jsx:decode(Payload, [return_maps]), parse_deliver_broker_request_properties(Properties)} of
@@ -804,16 +805,30 @@ handle_deliver_authz_broker_request_payload(
            method := <<"subscription.create">>,
            connection_mode := <<"service-agents">>,
            correlation_data := CorrData}} ->
-               handle_deliver_authz_broker_dynsub_create_request(
-                   Version, App, Object, Subject, CorrData, BrokerId, ClientId);
+                case catch parse_client_id(Subject) of
+                    ClientId ->
+                        handle_deliver_authz_broker_dynsub_create_request(
+                            Version, App, Object, Subject, CorrData, BrokerId, ClientId);
+                    _ ->
+                        %% NOTE: don't do anything if a delivery callback was called
+                        %% for different than the subject agent
+                        Message
+                end;
         {#{<<"object">> := Object,
            <<"subject">> := Subject},
          #{type := <<"request">>,
            method := <<"subscription.delete">>,
            connection_mode := <<"service-agents">>,
            correlation_data := CorrData}} ->
-               handle_deliver_authz_broker_dynsub_delete_request(
-                   Version, App, Object, Subject, CorrData, BrokerId, ClientId);
+                case catch parse_client_id(Subject) of
+                    ClientId ->
+                        handle_deliver_authz_broker_dynsub_delete_request(
+                            Version, App, Object, Subject, CorrData, BrokerId, ClientId);
+                    _ ->
+                        %% NOTE: don't do anything if a delivery callback was called
+                        %% for different than the subject agent
+                        Message
+                end;
         _ ->
             error_logger:error_msg(
                 "Error on deliver: unsupported broker request = ~p with properties = ~p "
