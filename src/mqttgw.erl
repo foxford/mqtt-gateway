@@ -660,14 +660,25 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
             <<"connection_mode">> => ModeStr},
 
     %% Additional broker properties
+    TimeB = integer_to_binary(Time),
     UserProperties4 =
         UserProperties3#{
             <<"broker_agent_label">> => BrokerAgentLabel,
             <<"broker_account_label">> => BrokerAccountLabel,
-            <<"broker_audience">> => BrokerAudience,
-            <<"broker_processing_timestamp">> => integer_to_binary(Time)},
+            <<"broker_audience">> => BrokerAudience},
+    UserProperties5 =
+        case maps:find(<<"broker_processing_timestamp">>, UserProperties4) of
+            {ok, BrokerProcTs} ->
+                UserProperties4#{
+                    <<"broker_processing_timestamp">> => TimeB,
+                    <<"broker_initial_processing_timestamp">> => BrokerProcTs};
+            _ ->
+                UserProperties4#{
+                    <<"broker_processing_timestamp">> => TimeB,
+                    <<"broker_initial_processing_timestamp">> => TimeB}
+        end,
 
-    Properties#{p_user_property => maps:to_list(UserProperties4)}.
+    Properties#{p_user_property => maps:to_list(UserProperties5)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -1828,7 +1839,8 @@ prop_onpublish() ->
                 [ {<<"broker_agent_label">>, mqttgw_id:label(BMe)},
                   {<<"broker_account_label">>, mqttgw_id:account_label(BMe)},
                   {<<"broker_audience">>, mqttgw_id:audience(BMe)},
-                  {<<"broker_processing_timestamp">>, integer_to_binary(Time)} ],
+                  {<<"broker_processing_timestamp">>, integer_to_binary(Time)},
+                  {<<"broker_initial_processing_timestamp">>, integer_to_binary(Time)} ],
             ExpectedConnectionL =
                 [ {<<"connection_version">>, VersionStr},
                   {<<"connection_mode">>, ModeStr} ],
