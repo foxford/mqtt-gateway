@@ -125,12 +125,22 @@ docker run -ti --rm \
     -p 1883:1883 \
     sandbox/mqtt-gateway
 
+# NOTE: will only be possible with resolving of the 'issue:1326'.
+# https://github.com/vernemq/vernemq/issues/1326
+#
 ## Subscribing to the topic of user's incoming messages
-OBSERVER='devops.svc.example.org' \
+# OBSERVER='devops.svc.example.org' \
+# USER='john.usr.example.net' \
+# APP='app.svc.example.org' \
+#     && mosquitto_sub -V 5 -h $(docker-machine ip) \
+#         -i "v1/observer-agents/test-1.${OBSERVER}" \
+#         -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
+
+## Subscribing to the topic of user's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_sub -V 5 -h $(docker-machine ip) \
-        -i "v1/observer-agents/test-1.${OBSERVER}" \
+        -i "v1/agents/test.${USER}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
 
 ## Subscribing to the topic of app's incoming multicast messages
