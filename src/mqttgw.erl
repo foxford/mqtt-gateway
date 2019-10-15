@@ -538,7 +538,7 @@ handle_publish_authz_broker_request(
 %     delete_dynsub(Subject, Data),
 
 %     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId),
+%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, Time),
 
 %     %% Send a multicast event to the application
 %     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, Time),
@@ -959,7 +959,7 @@ handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time) ->
             ClientId,
             Time) of
         InputMessage ->
-            handle_deliver_mqtt3_changes(Mode, InputMessage)
+            handle_deliver_mqtt3_changes(Mode, InputMessage, Time)
     catch
         T:R ->
             error_logger:error_msg(
@@ -970,12 +970,16 @@ handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_deliver_mqtt3_changes(connection_mode(), message()) -> ok | {ok, list()}.
-handle_deliver_mqtt3_changes(service_payload_only, Message) ->
+-spec handle_deliver_mqtt3_changes(connection_mode(), message(), non_neg_integer())
+    -> ok | {ok, list()}.
+handle_deliver_mqtt3_changes(service_payload_only, Message, _Time) ->
     #message{payload = Payload} = Message,
     {ok, [{payload, Payload}]};
-handle_deliver_mqtt3_changes(_Mode, Message) ->
-    {ok, [{payload, envelope(Message)}]}.
+handle_deliver_mqtt3_changes(_Mode, Message, Time) ->
+    #message{properties=Properties} = Message,
+    ModifiedMessage = Message#message{
+        properties=update_deliver_message_properties(Properties, Time)},
+    {ok, [{payload, envelope(ModifiedMessage)}]}.
 
 -spec handle_deliver_mqtt5(
     topic(), binary(), map(), client_id(), non_neg_integer())
@@ -995,7 +999,7 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, ClientId, Time) ->
             ClientId,
             Time) of
         InputMessage ->
-            handle_deliver_mqtt5_changes(Mode, InputMessage)
+            handle_deliver_mqtt5_changes(Mode, InputMessage, Time)
     catch
         T:R ->
             error_logger:error_msg(
@@ -1006,13 +1010,25 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, ClientId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_deliver_mqtt5_changes(connection_mode(), message()) -> ok | {ok, map()}.
-handle_deliver_mqtt5_changes(_Mode, Message) ->
+-spec handle_deliver_mqtt5_changes(connection_mode(), message(), non_neg_integer())
+    -> ok | {ok, map()}.
+handle_deliver_mqtt5_changes(_Mode, Message, Time) ->
     #message{payload=Payload, properties=Properties} = Message,
     Changes =
         #{payload => Payload,
-          properties => Properties},
+          properties => update_deliver_message_properties(Properties, Time)},
     {ok, Changes}.
+
+-spec update_deliver_message_properties(map(), non_neg_integer()) -> map().
+update_deliver_message_properties(Properties, Time) ->
+    UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
+
+    %% Additional broker properties
+    UserProperties1 =
+        UserProperties0#{
+            <<"broker_timestamp">> => integer_to_binary(Time)},
+
+    Properties#{p_user_property => maps:to_list(UserProperties1)}.
 
 %% =============================================================================
 %% API: Subscribe
@@ -2100,23 +2116,26 @@ prop_ondeliver() ->
         {binary_utf8_t(), subscriber_id_t(),
          publish_topic_t(), binary_utf8_t()},
         begin
+            Time = 0,
             #client_id{
                 mode=Mode,
                 agent_label=AgentLabel,
                 account_label=AccountLabel,
-                audience=Audience} = parse_client_id(element(2, SubscriberId)),
-            ExpectedProperties =
+                audience=Audience} = ClientId = parse_client_id(element(2, SubscriberId)),
+            ExpectedAuthnUserL =
                 #{<<"agent_label">> => AgentLabel,
                   <<"account_label">> => AccountLabel,
                   <<"audience">> => Audience},
-            InputPayload = jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
+            ExpectedBrokerL =
+                #{<<"broker_timestamp">> => integer_to_binary(Time)},
+            ExpectedProperties = maps:merge(ExpectedAuthnUserL, ExpectedBrokerL),
+            InputProperties = ExpectedAuthnUserL,
+            InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
             %% MQTT 5
             begin
-                InputProperties = #{},
-
                 {ok, Modifiers} =
-                    on_deliver_m5(Username, SubscriberId, Topic, InputPayload, InputProperties),
+                    handle_deliver_mqtt5(Topic, InputPayload, #{}, ClientId, Time),
                 Payload = maps:get(payload, Modifiers)
             end,
 
@@ -2124,15 +2143,15 @@ prop_ondeliver() ->
             begin
                 ExpectedPayload3 =
                     case Mode of
-                        default              -> InputPayload;
-                        bridge               -> InputPayload;
-                        observer             -> InputPayload;
-                        service              -> InputPayload;
-                        service_payload_only -> Payload
+                        M when (M =:= default) or (M =:= bridge)
+                            or (M =:= observer) or (M =:= service) ->
+                            jsx:encode(#{payload => Payload, properties => ExpectedProperties});
+                        service_payload_only ->
+                            Payload
                     end,
 
                 {ok, Modifiers3} =
-                    on_deliver(Username, SubscriberId, Topic, InputPayload),
+                    handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time),
                 {_, ExpectedPayload3} = lists:keyfind(payload, 1, Modifiers3)
             end,
 
