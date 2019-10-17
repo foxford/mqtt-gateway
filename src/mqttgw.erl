@@ -678,7 +678,18 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
                     <<"broker_initial_processing_timestamp">> => TimeB}
         end,
 
-    Properties#{p_user_property => maps:to_list(UserProperties5)}.
+    %% Additional app properties
+    UserProperties6 =
+        case {
+            maps:find(<<"timestamp">>, UserProperties5),
+            maps:find(<<"initial_timestamp">>, UserProperties5)} of
+            {{ok, Timestamp}, error} ->
+                UserProperties5#{<<"initial_timestamp">> => Timestamp};
+            _ ->
+                UserProperties5
+        end,
+
+    Properties#{p_user_property => maps:to_list(UserProperties6)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
