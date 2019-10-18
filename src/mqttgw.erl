@@ -629,6 +629,7 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
         account_label=AccountLabel,
         audience=Audience} = ClientId,
 
+    TimeB = integer_to_binary(Time),
     UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Everything is "event" by default
@@ -660,36 +661,47 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
             <<"connection_mode">> => ModeStr},
 
     %% Additional broker properties
-    TimeB = integer_to_binary(Time),
     UserProperties4 =
         UserProperties3#{
             <<"broker_agent_label">> => BrokerAgentLabel,
             <<"broker_account_label">> => BrokerAccountLabel,
             <<"broker_audience">> => BrokerAudience},
     UserProperties5 =
-        case maps:find(<<"broker_processing_timestamp">>, UserProperties4) of
-            {ok, BrokerProcTs} ->
+        case maps:find(<<"broker_initial_processing_timestamp">>, UserProperties4) of
+            {ok, _BrokerInitProcTs} ->
                 UserProperties4#{
-                    <<"broker_processing_timestamp">> => TimeB,
-                    <<"broker_initial_processing_timestamp">> => BrokerProcTs};
+                    <<"broker_processing_timestamp">> => TimeB};
             _ ->
                 UserProperties4#{
                     <<"broker_processing_timestamp">> => TimeB,
                     <<"broker_initial_processing_timestamp">> => TimeB}
         end,
 
-    %% Additional app properties
+    %% Additional svc properties
     UserProperties6 =
         case {
             maps:find(<<"timestamp">>, UserProperties5),
             maps:find(<<"initial_timestamp">>, UserProperties5)} of
             {{ok, Timestamp}, error} ->
-                UserProperties5#{<<"initial_timestamp">> => Timestamp};
+                UserProperties5#{
+                    <<"initial_timestamp">> => Timestamp};
             _ ->
                 UserProperties5
         end,
 
-    Properties#{p_user_property => maps:to_list(UserProperties6)}.
+    %% Additional usr properties
+    UserProperties7 =
+        case {
+            maps:take(<<"local_timestamp">>, UserProperties6),
+            maps:find(<<"local_initial_timediff">>, UserProperties6)} of
+            {{LocalTs, Prop7}, error} ->
+                LocalTimeDiff = integer_to_binary(Time - binary_to_integer(LocalTs)),
+                Prop7#{<<"local_initial_timediff">> => LocalTimeDiff};
+            _ ->
+                UserProperties6
+        end,
+
+    Properties#{p_user_property => maps:to_list(UserProperties7)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -2038,7 +2050,7 @@ message_publish_constraints_test_() ->
         end || Mode <- Modes]
     end || {Desc, QoSL, RetainL, Modes, Expect} <- Test].
 
-message_properties_test_() ->
+message_properties_required_test_() ->
     BrokerId = make_sample_broker_client_id(),
     ClientId = fun(Mode) ->
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
@@ -2120,6 +2132,103 @@ message_properties_test_() ->
             {Desc, ?_assertEqual(Expect, Result)}
         end || Mode <- Modes]
     end || {Desc, Modes, Props, Expect} <- Test].
+
+message_properties_optional_test_() ->
+    Time0 = 3,
+    Time0B = integer_to_binary(Time0),
+    Time1 = 5,
+    Time1B = integer_to_binary(Time1),
+    TimeDiff = Time1 - Time0,
+    TimeDiffB = integer_to_binary(TimeDiff),
+    BrokerId = make_sample_broker_client_id(),
+    ClientId = fun(Mode) ->
+        make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
+    end,
+
+    AnyMode = [default, service, service_payload_only, observer, bridge],
+    TrustedMode = [service, service_payload_only, observer, bridge],
+    NonTrustedMode = AnyMode -- TrustedMode,
+
+    Test = [
+        { "unset: broker_initial_processing_timestamp",
+          AnyMode,
+          #{},
+          [{<<"broker_processing_timestamp">>, Time1B},
+           {<<"broker_initial_processing_timestamp">>, Time1B}],
+          ok },
+        { "set: broker_initial_processing_timestamp",
+          AnyMode,
+          #{p_user_property => [{<<"broker_initial_processing_timestamp">>, Time0B}]},
+          [{<<"broker_processing_timestamp">>, Time1B},
+           {<<"broker_initial_processing_timestamp">>, Time0B}],
+          ok },
+        { "unset: timestamp, local_timestamp",
+          AnyMode,
+          #{},
+          [],
+          ok },
+        { "set: timestamp",
+          AnyMode,
+          #{p_user_property => [{<<"timestamp">>, Time0B}]},
+          [{<<"timestamp">>, Time0B}, {<<"initial_timestamp">>, Time0B}],
+          ok },
+        { "set: timestamp, initial_timestamp",
+          AnyMode,
+          #{p_user_property =>
+            [{<<"timestamp">>, Time1B},
+             {<<"initial_timestamp">>, Time0B}]},
+          [{<<"timestamp">>, Time1B}, {<<"initial_timestamp">>, Time0B}],
+          ok },
+        { "set: initial_timestamp",
+          AnyMode,
+          #{p_user_property => [{<<"initial_timestamp">>, Time0B}]},
+          [{<<"initial_timestamp">>, Time0B}],
+          ok },
+        { "set: local_timestamp",
+          AnyMode,
+          #{p_user_property => [{<<"local_timestamp">>, Time0B}]},
+          [{<<"local_initial_timediff">>, TimeDiffB}],
+          ok },
+        { "set: local_timestamp, local_initial_timediff",
+          AnyMode,
+          #{p_user_property =>
+            [{<<"local_timestamp">>, Time0B},
+             {<<"local_initial_timediff">>, TimeDiffB}]},
+          [{<<"local_initial_timediff">>, TimeDiffB}],
+          ok },
+        { "set: local_initial_timediff",
+          AnyMode,
+          #{p_user_property => [{<<"local_initial_timediff">>, TimeDiffB}]},
+          [{<<"local_initial_timediff">>, TimeDiffB}],
+          ok }
+    ],
+
+    mqttgw_state:new(),
+    mqttgw_state:put(authz, disabled),
+    [begin
+        [begin
+            Message = make_sample_message_bridgecompat(Mode, <<>>, InProps),
+            Result =
+                try handle_message_properties(Message, ClientId(Mode), BrokerId, Time1) of
+                    M ->
+                        UserProperties = maps:get(p_user_property, M#message.properties),
+                        IsPropMatch =
+                            lists:all(
+                                fun({Key, Val}) ->
+                                    case lists:keyfind(Key, 1, UserProperties) of
+                                        {_, OutVal} -> Val =:= OutVal;
+                                        _ -> false
+                                    end
+                                end,
+                                OutUserProps),
+                        case IsPropMatch of true -> ok; _ -> error end
+                catch
+                    _:_ ->
+                        error
+                end,
+            {Desc, ?_assertEqual(Expect, Result)}
+        end || Mode <- Modes]
+    end || {Desc, Modes, InProps, OutUserProps, Expect} <- Test].
 
 prop_ondeliver() ->
     ?FORALL(
