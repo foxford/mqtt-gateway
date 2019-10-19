@@ -46,6 +46,7 @@ mosquitto_sub -V 5 -h $(docker-machine ip) \
 mosquitto_pub -V 5 -h $(docker-machine ip) \
     -i 'v1/agents/test-pub.john-doe.usr.example.net' \
     -t 'foo' \
+    -D publish user-property 'local_timestamp' "$(date +%s000)" \
     -m '{}'
 ```
 
@@ -81,6 +82,7 @@ APP='app.svc.example.org' \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
         -t "agents/test.${USER}/api/v1/out/${APP}" \
+        -D publish user-property 'local_timestamp' "$(date +%s000)" \
         -m '{}'
 ```
 
@@ -101,9 +103,10 @@ docker run -ti --rm \
 ## Subscribing to messages
 OBSERVER='devops.svc.example.org' \
 BROKER='mqtt-gateway.svc.example.org' \
-    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+    && mosquitto_sub -h $(docker-machine ip) \
         -i "v1/observer-agents/test-1.${OBSERVER}" \
-        -t "apps/${BROKER}/api/v1/audiences/+/events"
+        -t "apps/${BROKER}/api/v1/audiences/+/events" \
+        | jq '.'
 
 ## Publishing a message
 mosquitto_pub -V 5 -h $(docker-machine ip) \
