@@ -820,24 +820,24 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
 %% https://github.com/vernemq/vernemq/issues/1326
 -spec handle_deliver_authz_config(topic(), message(), client_id(), non_neg_integer()) -> message().
-handle_deliver_authz_config(Topic, Message, ClientId, Time) ->
+handle_deliver_authz_config(Topic, Message, RecvId, Time) ->
     case mqttgw_state:find(authz) of
         {ok, disabled} ->
             Message;
         {ok, {enabled, BMe, _Config}} ->
             handle_deliver_authz_broker_request(
-                Topic, Message, broker_client_id(BMe), ClientId, Time);
+                Topic, Message, broker_client_id(BMe), RecvId, Time);
         _ ->
             error_logger:warning_msg(
                 "Error on deliver: authz config isn't found for the agent = '~s'",
-                [agent_id(ClientId)]),
+                [agent_id(RecvId)]),
             create_dynsub_error_response()
     end.
 
 -spec handle_deliver_authz_broker_request(
     topic(), message(), client_id(), client_id(), non_neg_integer())
     -> message().
-handle_deliver_authz_broker_request(Topic, Message, BrokerId, ClientId, Time) ->
+handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, Time) ->
     #message{properties = Props} = Message,
     case maps:find(p_response_topic, Props) of
         {ok, RTstr} ->
@@ -845,7 +845,7 @@ handle_deliver_authz_broker_request(Topic, Message, BrokerId, ClientId, Time) ->
                 %% We consider the request as a broker request if "response topic" matches "topic".
                 [<<"agents">>, _, <<"api">>, Version, <<"in">>, App] = RT when RT =:= Topic ->
                     handle_deliver_authz_broker_request_payload(
-                        Version, App, Message, BrokerId, ClientId, Time);
+                        Version, App, Message, BrokerId, RecvId, Time);
                 _ ->
                     Message
             end;
@@ -858,8 +858,8 @@ handle_deliver_authz_broker_request(Topic, Message, BrokerId, ClientId, Time) ->
     -> message().
 handle_deliver_authz_broker_request_payload(
     Version, App, #message{payload = Payload, properties = Properties} =Message,
-    BrokerId, ClientId, Time) ->
-    #client_id{mode=Mode} = ClientId,
+    BrokerId, RecvId, Time) ->
+    #client_id{mode=Mode} = RecvId,
 
     try {jsx:decode(Payload, [return_maps]), parse_deliver_broker_request_properties(Properties)} of
         {#{<<"object">> := Object,
@@ -867,14 +867,15 @@ handle_deliver_authz_broker_request_payload(
          #{type := <<"request">>,
            method := <<"subscription.create">>,
            connection_mode := <<"service-agents">>,
-           correlation_data := CorrData}} ->
+           correlation_data := CorrData,
+           sent_by := ClientId}} ->
                 case catch parse_client_id(Subject) of
-                    ClientId ->
+                    RecvId ->
                         handle_deliver_authz_broker_dynsub_create_request(
                             Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
-                        %% for different than the subject agent
+                        %% for a different than the subject agent
                         Message
                 end;
         {#{<<"object">> := Object,
@@ -882,21 +883,22 @@ handle_deliver_authz_broker_request_payload(
          #{type := <<"request">>,
            method := <<"subscription.delete">>,
            connection_mode := <<"service-agents">>,
-           correlation_data := CorrData}} ->
+           correlation_data := CorrData,
+           sent_by := ClientId}} ->
                 case catch parse_client_id(Subject) of
-                    ClientId ->
+                    RecvId ->
                         handle_deliver_authz_broker_dynsub_delete_request(
                             Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
-                        %% for different than the subject agent
+                        %% for a different than the subject agent
                         Message
                 end;
         _ ->
             error_logger:error_msg(
                 "Error on deliver: unsupported broker request = ~p with properties = ~p "
                 "from the agent = '~s' using mode = '~s', ",
-                [Payload, Properties, agent_id(ClientId), Mode]),
+                [Payload, Properties, agent_id(RecvId), Mode]),
             create_dynsub_error_response()
     catch
         T:R ->
@@ -904,7 +906,7 @@ handle_deliver_authz_broker_request_payload(
                 "Error on deliver: an invalid broker request = ~p with properties = ~p "
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Payload, Properties, agent_id(ClientId), Mode, T, R]),
+                [Payload, Properties, agent_id(RecvId), Mode, T, R]),
             create_dynsub_error_response()
     end.
 
@@ -971,25 +973,32 @@ parse_deliver_broker_request_properties(Properties) ->
       p_response_topic := RespTopic} = Properties,
     {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
     {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
+    {_, ConnVer} = lists:keyfind(<<"connection_version">>, 1, UserProperties),
     {_, ConnMode} = lists:keyfind(<<"connection_mode">>, 1, UserProperties),
+    {_, AgentLabel} = lists:keyfind(<<"agent_label">>, 1, UserProperties),
+    {_, AccountLabel} = lists:keyfind(<<"account_label">>, 1, UserProperties),
+    {_, Audience} = lists:keyfind(<<"audience">>, 1, UserProperties),
     #{type => Type,
       method => Method,
       connection_mode => ConnMode,
       correlation_data => CorrData,
-      response_topic => RespTopic}.
+      response_topic => RespTopic,
+      sent_by => broker_client_id(
+          parse_connection_nmode({ConnVer, ConnMode}),
+          #{label => AgentLabel, account_id => #{label => AccountLabel, audience => Audience}})}.
 %% <<<<< END
 
 -spec handle_deliver_mqtt3(topic(), binary(), client_id(), non_neg_integer())
     -> ok | {ok, list()} | {error, error()}.
-handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time) ->
-    #client_id{mode=Mode} = ClientId,
+handle_deliver_mqtt3(Topic, InputPayload, RecvId, Time) ->
+    #client_id{mode=Mode} = RecvId,
 
     %% TODO: remove the local state, remove "handle_deliver_authz_config"
     try handle_deliver_authz_config(
             Topic,
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(default, InputPayload))),
-            ClientId,
+            RecvId,
             Time) of
         InputMessage ->
             handle_deliver_mqtt3_changes(Mode, InputMessage, Time)
@@ -999,7 +1008,7 @@ handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time) ->
                 "Error on deliver: an invalid message = ~p "
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, agent_id(ClientId), Mode, T, R]),
+                [InputPayload, agent_id(RecvId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -1017,8 +1026,8 @@ handle_deliver_mqtt3_changes(_Mode, Message, Time) ->
 -spec handle_deliver_mqtt5(
     topic(), binary(), map(), client_id(), non_neg_integer())
     -> ok | {ok, map()} | {error, error()}.
-handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, ClientId, Time) ->
-    #client_id{mode=Mode} = ClientId,
+handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, Time) ->
+    #client_id{mode=Mode} = RecvId,
 
     %% TODO: don't modify message payload on publish (only properties)
     % InputMessage = #message{payload = InputPayload, properties = InputProperties},
@@ -1029,7 +1038,7 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, ClientId, Time) ->
             Topic,
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(default, InputPayload))),
-            ClientId,
+            RecvId,
             Time) of
         InputMessage ->
             handle_deliver_mqtt5_changes(Mode, InputMessage, Time)
@@ -1039,7 +1048,7 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, ClientId, Time) ->
                 "Error on deliver: an invalid message = ~p "
                 "from the agent = '~s' using mode = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [InputPayload, agent_id(ClientId), Mode, T, R]),
+                [InputPayload, agent_id(RecvId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
@@ -1316,8 +1325,12 @@ account_id(ClientId) ->
 
 -spec broker_client_id(mqttgw_id:agent_id()) -> client_id().
 broker_client_id(AgentId) ->
+    broker_client_id(service, AgentId).
+
+-spec broker_client_id(connection_mode(), mqttgw_id:agent_id()) -> client_id().
+broker_client_id(Mode, AgentId) ->
     #client_id
-        {mode = service,
+        {mode = Mode,
          agent_label = mqttgw_id:label(AgentId),
          account_label = mqttgw_id:account_label(AgentId),
          audience = mqttgw_id:audience(AgentId)}.
@@ -1341,6 +1354,14 @@ connection_versionmode(service_payload_only) -> {<<"v1.payload-only">>, <<"servi
 connection_versionmode(service)              -> {<<"v1">>, <<"service-agents">>};
 connection_versionmode(observer)             -> {<<"v1">>, <<"observer-agents">>};
 connection_versionmode(bridge)               -> {<<"v1">>, <<"bridge-agents">>}.
+
+-spec parse_connection_nmode({binary(), binary()}) -> connection_mode().
+parse_connection_nmode({<<"v1">>, <<"agents">>}) -> default;
+parse_connection_nmode({<<"v1.payload-only">>, <<"service-agents">>}) -> service_payload_only;
+parse_connection_nmode({<<"v1">>, <<"service-agents">>}) -> service;
+parse_connection_nmode({<<"v1">>, <<"observer-agents">>}) -> observer;
+parse_connection_nmode({<<"v1">>, <<"bridge-agents">>}) -> bridge;
+parse_connection_nmode(VerMode) -> error({bad_versionmode, VerMode}).
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1/agents/", R/bits>>) ->
@@ -1465,6 +1486,12 @@ create_dynsub(Subject, Data) ->
     %% https://github.com/vernemq/vernemq/issues/1326
     mqttgw_dynsubstate:put(Subject, Data),
     %% <<<<< END
+
+    error_logger:info_msg(
+        "Dynamic subscription: ~p has been created "
+        "for the subject = '~s'",
+        [Data, Subject]),
+
     ok.
 
 -spec delete_dynsub(mqttgw_dynsub:subject(), mqttgw_dynsub:data()) -> ok.
@@ -1479,6 +1506,12 @@ delete_dynsub(Subject, Data) ->
     %% https://github.com/vernemq/vernemq/issues/1326
     mqttgw_dynsubstate:remove(Subject, Data),
     %% <<<<< END
+
+    error_logger:info_msg(
+        "Dynamic subscription: ~p has been deleted "
+        "for the subject = '~s'",
+        [Data, Subject]),
+
     ok.
 
 -spec delete_client_dynsubs(mqttgw_dynsub:subject(), client_id(), non_neg_integer()) -> ok.
@@ -2280,8 +2313,7 @@ prop_ondeliver() ->
             begin
                 {ok, Modifiers} =
                     handle_deliver_mqtt5(Topic, InputPayload, #{}, ClientId, Time),
-                % Payload = maps:get(payload, Modifiers)
-                ok
+                Payload = maps:get(payload, Modifiers)
             end,
 
             %% MQTT 3
