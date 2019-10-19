@@ -609,6 +609,13 @@ validate_message_properties(Properties, ClientId) ->
             ok
     end,
 
+    %% Required properties for mode=default
+    %% NOTE: default agent must always pass 'local_timestamp' property
+    case {Mode, maps:find(<<"local_initial_timediff">>, UserProperties)} of
+        {default, error} -> error({missing_local_initial_timediff_user_property, Properties});
+        _ -> ok
+    end,
+
     Properties.
 
 -spec verify_response_topic(topic(), binary()) -> ok.
@@ -694,6 +701,9 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
         case {
             maps:take(<<"local_timestamp">>, UserProperties6),
             maps:find(<<"local_initial_timediff">>, UserProperties6)} of
+            %% NOTE: remove 'local_initial_timediff' if it was sent by an agent in 'default' mode
+            {error, {ok, _}} when Mode =:= default ->
+                maps:take(<<"local_initial_timediff">>, UserProperties6);
             {{LocalTs, Prop7}, error} ->
                 LocalTimeDiff = integer_to_binary(Time - binary_to_integer(LocalTs)),
                 Prop7#{<<"local_initial_timediff">> => LocalTimeDiff};
@@ -1864,6 +1874,7 @@ prop_onpublish() ->
             IsRetain = minimal_constraint(retain),
             BMe = make_sample_me(),
             Time = 0,
+            TimeB = TimeDiffB = integer_to_binary(Time),
 
             mqttgw_state:new(),
             mqttgw_state:put(id, BMe),
@@ -1878,8 +1889,8 @@ prop_onpublish() ->
                 [ {<<"broker_agent_label">>, mqttgw_id:label(BMe)},
                   {<<"broker_account_label">>, mqttgw_id:account_label(BMe)},
                   {<<"broker_audience">>, mqttgw_id:audience(BMe)},
-                  {<<"broker_processing_timestamp">>, integer_to_binary(Time)},
-                  {<<"broker_initial_processing_timestamp">>, integer_to_binary(Time)} ],
+                  {<<"broker_processing_timestamp">>, TimeB},
+                  {<<"broker_initial_processing_timestamp">>, TimeB} ],
             ExpectedConnectionL =
                 [ {<<"connection_version">>, VersionStr},
                   {<<"connection_mode">>, ModeStr} ],
@@ -1888,16 +1899,22 @@ prop_onpublish() ->
                   {<<"account_label">>, AccountLabel},
                   {<<"audience">>, Audience} ],
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
-            ExpectedUserL = [{<<"type">>, <<"event">>}
+            ExpectedTimeL = [
+                {<<"local_initial_timediff">>, TimeDiffB}],
+            ExpectedUserL = [
+                {<<"type">>, <<"event">>}
                 | ExpectedAuthnUserL ++ ExpectedConnectionL ++ ExpectedBrokerL],
-            ExpectedProperties = #{p_user_property => ExpectedUserL},
+            ExpectedProperties = fun
+                (default) -> #{p_user_property => ExpectedUserL ++ ExpectedTimeL};
+                (_) -> #{p_user_property => ExpectedUserL}
+            end,
 
             %% MQTT 5
             begin
                 {InputPayload, InputProperties} =
                     case Mode of
                         M5 when (M5 =:= default) or (M5 =:= service) or (M5 =:= observer) ->
-                            {Payload, #{}};
+                            {Payload, add_local_timestamp(Mode, Time, #{})};
                         bridge ->
                             {Payload, ExpectedAuthnProperties};
                         service_payload_only ->
@@ -1914,26 +1931,28 @@ prop_onpublish() ->
                 %% OutputUserProperties = maps:get(user_property, Modifiers),
                 %% lists:usort(OutputUserProperties) == lists:usort(ExpectedUserL)
                 ExpectedCompatMessage3 =
-                    envelope(#message{payload = Payload, properties = ExpectedProperties}),
+                    envelope(#message{payload = Payload, properties = ExpectedProperties(Mode)}),
                 ExpectedCompatMessage3 = maps:get(payload, Modifiers),
                 [] = maps:get(p_user_property, maps:get(properties, Modifiers))
             end,
 
             %% MQTT 3
             begin
-                ExpectedMessage3 =
-                    envelope(#message{payload = Payload, properties = ExpectedProperties}),
                 InputMessage3 =
                     case Mode of
                         M3 when (M3 =:= default) or (M3 =:= service) or (M3 =:= observer) ->
-                            envelope(make_sample_message_bridgepropsonly(
-                                Mode, Payload));
+                            envelope(#message{
+                                payload=Payload,
+                                properties=add_local_timestamp(Mode, Time, #{})});
                         bridge ->
-                            envelope(make_sample_message_bridgepropsonly(
-                                Mode, Payload, ExpectedAuthnProperties));
+                            envelope(#message{
+                                payload = Payload,
+                                properties=#{p_user_property => ExpectedUserL}});
                         service_payload_only ->
                             Payload
                     end,
+                ExpectedMessage3 =
+                    envelope(#message{payload = Payload, properties = ExpectedProperties(Mode)}),
 
                 {ok, Modifiers3} =
                     handle_publish_mqtt3_constraints(
@@ -2003,7 +2022,7 @@ authz_onpublish_test_() ->
     mqttgw_state:put(authz, {enabled, maps:get(me, make_sample_me(<<"aud">>, [])), ignore}),
     [begin
         [begin
-            Message = make_sample_message_bridgecompat(Mode),
+            Message = make_sample_message_bridgecompat(Mode, Time),
             ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
             Result =
                 case handle_publish_authz(TopicFn(ClientId), Message, ClientId, Time) of
@@ -2062,6 +2081,7 @@ message_properties_required_test_() ->
         <<"agents/another.bar.aud.example.org/api/v1/in/baz.aud.example.org">>
     end,
 
+    Time = 0,
     AnyMode = [default, service, service_payload_only, observer, bridge],
     ServiceMode = [service],
     NonServiceMode = AnyMode -- ServiceMode,
@@ -2115,12 +2135,11 @@ message_properties_required_test_() ->
           error }
     ],
 
-    Time = 0,
     mqttgw_state:new(),
     mqttgw_state:put(authz, disabled),
     [begin
         [begin
-            Message = make_sample_message_bridgecompat(Mode, <<>>, Props),
+            Message = make_sample_message_bridgecompat(Mode, Time, <<>>, Props),
             Result =
                 try handle_message_properties(Message, ClientId(Mode), BrokerId, Time) of
                     _ ->
@@ -2207,7 +2226,7 @@ message_properties_optional_test_() ->
     mqttgw_state:put(authz, disabled),
     [begin
         [begin
-            Message = make_sample_message_bridgecompat(Mode, <<>>, InProps),
+            Message = make_sample_message_bridgecompat(Mode, Time0, <<>>, InProps),
             Result =
                 try handle_message_properties(Message, ClientId(Mode), BrokerId, Time1) of
                     M ->
@@ -2236,6 +2255,7 @@ prop_ondeliver() ->
         {binary_utf8_t(), subscriber_id_t(),
          publish_topic_t(), binary_utf8_t()},
         begin
+            BMe = make_sample_me(),
             Time = 0,
             #client_id{
                 mode=Mode,
@@ -2252,11 +2272,16 @@ prop_ondeliver() ->
             InputProperties = ExpectedAuthnUserL,
             InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
+            mqttgw_state:new(),
+            mqttgw_state:put(id, BMe),
+            mqttgw_state:put(authz, disabled),
+
             %% MQTT 5
             begin
                 {ok, Modifiers} =
                     handle_deliver_mqtt5(Topic, InputPayload, #{}, ClientId, Time),
-                Payload = maps:get(payload, Modifiers)
+                % Payload = maps:get(payload, Modifiers)
+                ok
             end,
 
             %% MQTT 3
@@ -2392,17 +2417,17 @@ make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Versi
 
     <<ModeLabel/binary, $/, AgentId/binary>>.
 
-make_sample_message_bridgecompat(Mode) ->
-    make_sample_message_bridgecompat(Mode, <<>>, #{}).
+make_sample_message_bridgecompat(Mode, Time) ->
+    make_sample_message_bridgecompat(Mode, Time, <<>>, #{}).
 
-make_sample_message_bridgecompat(Mode, Payload, Properties) ->
+make_sample_message_bridgecompat(Mode, Time, Payload, Properties) ->
     case Mode of
         Mode when
             (Mode =:= default) or (Mode =:= service_payload_only) or (Mode =:= service) or
             (Mode =:= observer) ->
             #message{
                 payload = Payload,
-                properties = Properties};
+                properties = add_local_timestamp(Mode, Time, Properties)};
         bridge ->
             #message
                 {payload = Payload,
@@ -2422,23 +2447,10 @@ update_sample_message_properties(Mode, Properties) ->
     UserProperties1 = maps:merge(DefaultSampleUserProperties, UserProperties0),
     Properties#{p_user_property => maps:to_list(UserProperties1)}.
 
-
-make_sample_message_bridgepropsonly(Mode, Payload) ->
-    make_sample_message_bridgepropsonly(Mode, Payload, #{}).
-
-make_sample_message_bridgepropsonly(Mode, Payload, Properties) ->
-    case Mode of
-        Mode when
-            (Mode =:= default) or (Mode =:= service_payload_only) or (Mode =:= service) or
-            (Mode =:= observer) ->
-            #message{
-                payload = Payload};
-        bridge ->
-            #message{
-                payload = Payload,
-                properties = Properties};
-        _ ->
-            error({bad_mode, Mode})
-    end.
+add_local_timestamp(default, Time, Properties) ->
+    L = maps:get(p_user_property, Properties, []),
+    Properties#{p_user_property => [{<<"local_timestamp">>, integer_to_binary(Time)}|L]};
+add_local_timestamp(_, _Time, Properties) ->
+    Properties.
 
 -endif.
