@@ -24,7 +24,7 @@
     handle_publish_authz/4,
     handle_deliver_mqtt3/4,
     handle_deliver_mqtt5/5,
-    handle_subscribe_authz/2
+    handle_subscribe_authz/3
 ]).
 
 %% Plugin callbacks
@@ -64,6 +64,20 @@
 }).
 -type client_id() :: #client_id{}.
 
+-record(config, {
+    id    :: mqttgw_id:agent_id(),
+    authn :: mqttgw_authn:config(),
+    authz :: mqttgw_authz:config(),
+    stat  :: mqttgw_stat:config()
+}).
+-type config() :: #config{}.
+
+-record(state, {
+    config :: config(),
+    time   :: non_neg_integer()
+}).
+-type state() :: #state{}.
+
 -record (message, {
     payload          :: binary(),
     properties = #{} :: map()
@@ -78,11 +92,11 @@
 %% API: Connect
 %% =============================================================================
 
--spec handle_connect(connection(), binary(), boolean(), non_neg_integer()) -> ok | {error, error()}.
-handle_connect(Conn, Password, CleanSession, Time) ->
+-spec handle_connect(connection(), binary(), boolean(), state()) -> ok | {error, error()}.
+handle_connect(Conn, Password, CleanSession, State) ->
     try validate_client_id(parse_client_id(Conn)) of
         ClientId ->
-            handle_connect_constraints(ClientId, Password, CleanSession, Time)
+            handle_connect_constraints(ClientId, Password, CleanSession, State)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -92,12 +106,12 @@ handle_connect(Conn, Password, CleanSession, Time) ->
             {error, #{reason_code => client_identifier_not_valid}}
     end.
 
--spec handle_connect_constraints(client_id(), binary(), boolean(), non_neg_integer())
+-spec handle_connect_constraints(client_id(), binary(), boolean(), state())
     -> ok | {error, error()}.
-handle_connect_constraints(ClientId, Password, CleanSession, Time) ->
+handle_connect_constraints(ClientId, Password, CleanSession, State) ->
     try verify_connect_constraints(CleanSession, ClientId#client_id.mode) of
         _ ->
-            handle_connect_authn_config(ClientId, Password, Time)
+            handle_connect_authn_config(ClientId, Password, State)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -107,34 +121,28 @@ handle_connect_constraints(ClientId, Password, CleanSession, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_connect_authn_config(client_id(), binary(), non_neg_integer())
+-spec handle_connect_authn_config(client_id(), binary(), state())
     -> ok | {error, error()}.
-handle_connect_authn_config(ClientId, Password, Time) ->
-    case mqttgw_state:find(authn) of
-        {ok, disabled} ->
+handle_connect_authn_config(ClientId, Password, State) ->
+    case State#state.config#config.authn of
+        disabled ->
             DirtyAccountId =
                 #{label => ClientId#client_id.account_label,
                   audience => ClientId#client_id.audience},
-            handle_connect_authz_config(ClientId, DirtyAccountId, Time);
-        {ok, {enabled, Config}} ->
-            handle_connect_authn(ClientId, Password, Config, Time);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: authn config isn't found "
-                "for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => impl_specific_error}}
+            handle_connect_authz_config(ClientId, DirtyAccountId, State);
+        {enabled, Config} ->
+            handle_connect_authn(ClientId, Password, Config, State)
     end.
 
--spec handle_connect_authn(client_id(), binary(), mqttgw_authn:config(), non_neg_integer())
+-spec handle_connect_authn(client_id(), binary(), mqttgw_authn:config(), state())
     -> ok | {error, error()}.
-handle_connect_authn(ClientId, Password, Config, Time) ->
+handle_connect_authn(ClientId, Password, Config, State) ->
     DirtyAccountId =
         #{label => ClientId#client_id.account_label,
           audience => ClientId#client_id.audience},
     try mqttgw_authn:authenticate(Password, Config) of
         AccountId when AccountId =:= DirtyAccountId ->
-            handle_connect_authz_config(ClientId, AccountId, Time);
+            handle_connect_authz_config(ClientId, AccountId, State);
         AccountId ->
             error_logger:warning_msg(
                 "Error on connect: account_id = '~s' in the password is "
@@ -152,35 +160,30 @@ handle_connect_authn(ClientId, Password, Config, Time) ->
             {error, #{reason_code => bad_username_or_password}}
     end.
 
--spec handle_connect_authz_config(client_id(), mqttgw_authn:account_id(), non_neg_integer())
+-spec handle_connect_authz_config(client_id(), mqttgw_authn:account_id(), state())
     -> ok | {error, error()}.
-handle_connect_authz_config(ClientId, AccountId, Time) ->
+handle_connect_authz_config(ClientId, AccountId, State) ->
     #client_id{mode=Mode} = ClientId,
 
-    case mqttgw_state:find(authz) of
-        {ok, disabled} ->
-            handle_connect_stat_config(ClientId, Time);
-        {ok, {enabled, BMe, Config}} ->
-            handle_connect_authz(Mode, ClientId, AccountId, broker_client_id(BMe), Config, Time);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: authz config isn't found for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => not_authorized}}
+    case State#state.config#config.authz of
+        disabled ->
+            handle_connect_stat_config(ClientId, State);
+        {enabled, BMe, Config} ->
+            handle_connect_authz(Mode, ClientId, AccountId, broker_client_id(BMe), Config, State)
     end.
 
 -spec handle_connect_authz(
     connection_mode(), client_id(), mqttgw_authn:account_id(),
-    client_id(), mqttgw_authz:config(), non_neg_integer())
+    client_id(), mqttgw_authz:config(), state())
     -> ok | {error, error()}.
-handle_connect_authz(default, ClientId, _AccountId, _BrokerId, _Config, Time) ->
-    handle_connect_stat_config(ClientId, Time);
-handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config, Time) ->
+handle_connect_authz(default, ClientId, _AccountId, _BrokerId, _Config, State) ->
+    handle_connect_stat_config(ClientId, State);
+handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config, State) ->
     #client_id{mode=Mode} = ClientId,
 
     try mqttgw_authz:authorize(BrokerId#client_id.audience, AccountId, Config) of
         _ ->
-            handle_connect_stat_config(ClientId, Time)
+            handle_connect_stat_config(ClientId, State)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -191,25 +194,19 @@ handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config, Time) ->
             {error, #{reason_code => not_authorized}}
     end.
 
--spec handle_connect_stat_config(client_id(), non_neg_integer()) -> ok | {error, error()}.
-handle_connect_stat_config(ClientId, Time) ->
-    case mqttgw_state:find(stat) of
-        {ok, disabled} ->
+-spec handle_connect_stat_config(client_id(), state()) -> ok | {error, error()}.
+handle_connect_stat_config(ClientId, State) ->
+    case State#state.config#config.stat of
+        disabled ->
             handle_connect_success(ClientId);
-        {ok, {enabled, BMe}} ->
+        {enabled, BMe} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
                 <<"agent.enter">>,
                 broker_client_id(BMe),
                 ClientId,
-                Time),
-            handle_connect_success(ClientId);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: stat config isn't found "
-                "for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => impl_specific_error}}
+                State#state.time),
+            handle_connect_success(ClientId)
     end.
 
 -spec handle_connect_success(client_id()) -> ok | {error, error()}.
@@ -242,44 +239,33 @@ verify_connect_clean_session_constraint(IsRetain, _Mode) ->
 %% API: Disconnect
 %% =============================================================================
 
--spec handle_disconnect(connection(), non_neg_integer()) -> ok.
-handle_disconnect(Conn, Time) ->
-    handle_disconnect_authz_config(Conn, parse_client_id(Conn), Time).
+-spec handle_disconnect(connection(), state()) -> ok.
+handle_disconnect(Conn, State) ->
+    handle_disconnect_authz_config(Conn, parse_client_id(Conn), State).
 
--spec handle_disconnect_authz_config(connection(), client_id(), non_neg_integer()) -> ok.
-handle_disconnect_authz_config(Conn, ClientId, Time) ->
-    case mqttgw_state:find(authz) of
-        {ok, disabled} ->
-            handle_disconnect_stat_config(ClientId, Time);
-        {ok, {enabled, BMe, _}} ->
-            delete_client_dynsubs(Conn, broker_client_id(BMe), Time),
-            handle_disconnect_stat_config(ClientId, Time);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: authz config isn't found for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => not_authorized}}
+-spec handle_disconnect_authz_config(connection(), client_id(), state()) -> ok.
+handle_disconnect_authz_config(Conn, ClientId, State) ->
+    case State#state.config#config.authz of
+        disabled ->
+            handle_disconnect_stat_config(ClientId, State);
+        {enabled, BMe, _} ->
+            delete_client_dynsubs(Conn, broker_client_id(BMe), State#state.time),
+            handle_disconnect_stat_config(ClientId, State)
     end.
 
--spec handle_disconnect_stat_config(client_id(), non_neg_integer()) -> ok | {error, error()}.
-handle_disconnect_stat_config(ClientId, Time) ->
-    case mqttgw_state:find(stat) of
-        {ok, disabled} ->
+-spec handle_disconnect_stat_config(client_id(), state()) -> ok | {error, error()}.
+handle_disconnect_stat_config(ClientId, State) ->
+    case State#state.config#config.stat of
+        disabled ->
             handle_disconnect_success(ClientId);
-        {ok, {enabled, BMe}} ->
+        {enabled, BMe} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
                 <<"agent.leave">>,
                 broker_client_id(BMe),
                 ClientId,
-                Time),
-            handle_disconnect_success(ClientId);
-        _ ->
-            error_logger:warning_msg(
-                "Error on connect: stat config isn't found "
-                "for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => impl_specific_error}}
+                State#state.time),
+            handle_disconnect_success(ClientId)
     end.
 
 -spec handle_disconnect_success(client_id()) -> ok.
@@ -296,14 +282,14 @@ handle_disconnect_success(ClientId) ->
 %% =============================================================================
 
 -spec handle_publish_mqtt3_constraints(
-    topic(), binary(), qos(), boolean(), client_id(), non_neg_integer())
+    topic(), binary(), qos(), boolean(), client_id(), state())
     -> {ok, list()} | {error, error()}.
-handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId, Time) ->
+handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_constraints(QoS, IsRetain, Mode) of
         _ ->
-            handle_publish_mqtt3(Topic, InputPayload, ClientId, Time)
+            handle_publish_mqtt3(Topic, InputPayload, ClientId, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -314,19 +300,19 @@ handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, ClientId, T
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_publish_mqtt3(topic(), binary(), client_id(), non_neg_integer())
+-spec handle_publish_mqtt3(topic(), binary(), client_id(), state())
     -> {ok, list()} | {error, error()}.
-handle_publish_mqtt3(Topic, InputPayload, ClientId, Time) ->
+handle_publish_mqtt3(Topic, InputPayload, ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
-    BrokerId = broker_client_id(mqttgw_state:get(id)),
+    BrokerId = broker_client_id(State#state.config#config.id),
     try handle_message_properties(
         handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(Mode, InputPayload))),
         ClientId,
         BrokerId,
-        Time) of
+        State) of
         Message ->
-            case handle_publish_authz(Topic, Message, ClientId, Time) of
+            case handle_publish_authz(Topic, Message, ClientId, State) of
                 ok ->
                     Changes = [{payload, envelope(Message)}],
                     {ok, Changes};
@@ -344,15 +330,15 @@ handle_publish_mqtt3(Topic, InputPayload, ClientId, Time) ->
     end.
 
 -spec handle_publish_mqtt5_constraints(
-    topic(), binary(), map(), qos(), boolean(), client_id(), non_neg_integer())
+    topic(), binary(), map(), qos(), boolean(), client_id(), state())
     -> {ok, map()} | {error, error()}.
 handle_publish_mqtt5_constraints(
-    Topic, InputPayload, InputProperties, QoS, IsRetain, ClientId, Time) ->
+    Topic, InputPayload, InputProperties, QoS, IsRetain, ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_constraints(QoS, IsRetain, Mode) of
         _ ->
-            handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId, Time)
+            handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -363,16 +349,16 @@ handle_publish_mqtt5_constraints(
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_publish_mqtt5(topic(), binary(), map(), client_id(), non_neg_integer())
+-spec handle_publish_mqtt5(topic(), binary(), map(), client_id(), state())
     -> {ok, map()} | {error, error()}.
-handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId, Time) ->
+handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
-    BrokerId = broker_client_id(mqttgw_state:get(id)),
+    BrokerId = broker_client_id(State#state.config#config.id),
     InputMessage = #message{payload = InputPayload, properties = InputProperties},
-    try handle_message_properties(InputMessage, ClientId, BrokerId, Time) of
+    try handle_message_properties(InputMessage, ClientId, BrokerId, State) of
         Message ->
-            case handle_publish_authz(Topic, Message, ClientId, Time) of
+            case handle_publish_authz(Topic, Message, ClientId, State) of
                 ok ->
                     %% TODO: don't modify message payload on publish (only properties)
                     %%
@@ -402,35 +388,30 @@ handle_publish_mqtt5(Topic, InputPayload, InputProperties, ClientId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_publish_authz(topic(), message(), client_id(), non_neg_integer())
+-spec handle_publish_authz(topic(), message(), client_id(), state())
     -> ok | {error, error()}.
-handle_publish_authz(Topic, Message, ClientId, Time) ->
-    handle_publish_authz_config(Topic, Message, ClientId, Time).
+handle_publish_authz(Topic, Message, ClientId, State) ->
+    handle_publish_authz_config(Topic, Message, ClientId, State).
 
--spec handle_publish_authz_config(topic(), message(), client_id(), non_neg_integer())
+-spec handle_publish_authz_config(topic(), message(), client_id(), state())
     -> ok | {error, error()}.
-handle_publish_authz_config(Topic, Message, ClientId, Time) ->
-    case mqttgw_state:find(authz) of
-        {ok, disabled} ->
+handle_publish_authz_config(Topic, Message, ClientId, State) ->
+    case State#state.config#config.authz of
+        disabled ->
             ok;
-        {ok, {enabled, BMe, _Config}} ->
-            handle_publish_authz_topic(Topic, Message, broker_client_id(BMe), ClientId, Time);
-        _ ->
-            error_logger:warning_msg(
-                "Error on publish: authz config isn't found for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, #{reason_code => not_authorized}}
+        {enabled, BMe, _Config} ->
+            handle_publish_authz_topic(Topic, Message, broker_client_id(BMe), ClientId, State)
     end.
 
--spec handle_publish_authz_topic(topic(), message(), client_id(), client_id(), non_neg_integer())
+-spec handle_publish_authz_topic(topic(), message(), client_id(), client_id(), state())
     -> ok | {error, error()}.
-handle_publish_authz_topic(Topic, Message, BrokerId, ClientId, Time) ->
+handle_publish_authz_topic(Topic, Message, BrokerId, ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
     try verify_publish_topic(Topic, account_id(ClientId), agent_id(ClientId), Mode) of
         _ ->
             handle_publish_authz_broker_request(
-                Topic, Message, account_id(BrokerId), agent_id(BrokerId), BrokerId, ClientId, Time)
+                Topic, Message, account_id(BrokerId), agent_id(BrokerId), BrokerId, ClientId, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -445,24 +426,24 @@ handle_publish_authz_topic(Topic, Message, BrokerId, ClientId, Time) ->
 %% TODO: uncomment the lines bellow
 
 -spec handle_publish_authz_broker_request(
-    topic(), message(), binary(), binary(), client_id(), client_id(), non_neg_integer())
+    topic(), message(), binary(), binary(), client_id(), client_id(), state())
     -> ok | {error, error()}.
 % handle_publish_authz_broker_request(
 %     [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
-%     Message, BrokerAccoundId, _BrokerAgentId, BrokerId, ClientId, Time) ->
-%         handle_publish_authz_broker_request_payload(Version, Message, BrokerId, ClientId, Time);
+%     Message, BrokerAccoundId, _BrokerAgentId, BrokerId, ClientId, State) ->
+%         handle_publish_authz_broker_request_payload(Version, Message, BrokerId, ClientId, State);
 handle_publish_authz_broker_request(
-    _Topic, _Message, _BrokerAccoundId, _BrokerAgentId, _BrokerId, _ClientId, _Time) ->
+    _Topic, _Message, _BrokerAccoundId, _BrokerAgentId, _BrokerId, _ClientId, _State) ->
         ok.
 
 %% TODO: remove the local state
 %% TODO: uncomment the lines bellow
 
 % -spec handle_publish_authz_broker_request_payload(
-%    binary(), message(), client_id(), client_id(), non_neg_integer())
+%    binary(), message(), client_id(), client_id(), state())
 %     -> ok | {error, error()}.
 % handle_publish_authz_broker_request_payload(
-%     Version, #message{payload = Payload, properties = Properties}, BrokerId, ClientId, Time) ->
+%     Version, #message{payload = Payload, properties = Properties}, BrokerId, ClientId, State) ->
 %     #client_id{mode=Mode} = ClientId,
 
 %     try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
@@ -474,7 +455,7 @@ handle_publish_authz_broker_request(
 %            correlation_data := CorrData,
 %            response_topic := RespTopic}} ->
 %                handle_publish_authz_broker_dynsub_create_request(
-%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, Time);
+%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, State);
 %         {service,
 %          #{<<"object">> := Object,
 %            <<"subject">> := Subject},
@@ -483,7 +464,7 @@ handle_publish_authz_broker_request(
 %            correlation_data := CorrData,
 %            response_topic := RespTopic}} ->
 %                handle_publish_authz_broker_dynsub_delete_request(
-%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, Time);
+%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, State);
 %         _ ->
 %             error_logger:error_msg(
 %                 "Error on publish: unsupported broker request = ~p with properties = ~p "
@@ -502,10 +483,10 @@ handle_publish_authz_broker_request(
 
 % -spec handle_publish_authz_broker_dynsub_create_request(
 %     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-%     binary(), binary(), client_id(), client_id(), non_neg_integer())
+%     binary(), binary(), client_id(), client_id(), state())
 %     -> ok | {error, error()}.
 % handle_publish_authz_broker_dynsub_create_request(
-%     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, Time) ->
+%     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, State) ->
 %     #client_id{
 %         account_label=AccountLabel,
 %         audience=Audience} = ClientId,
@@ -516,18 +497,18 @@ handle_publish_authz_broker_request(
 %     create_dynsub(Subject, Data),
 
 %     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, Time),
+%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, State#state.time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, Time),
+%     send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, State#state.time),
 %     ok.
 
 % -spec handle_publish_authz_broker_dynsub_delete_request(
 %     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-%     binary(), binary(), client_id(), client_id(), non_neg_integer())
+%     binary(), binary(), client_id(), client_id(), state())
 %     -> ok | {error, error()}.
 % handle_publish_authz_broker_dynsub_delete_request(
-%     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, Time) ->
+%     Version, Object, Subject, CorrData, RespTopic, BrokerId, ClientId, State) ->
 %     #client_id{
 %         account_label=AccountLabel,
 %         audience=Audience} = ClientId,
@@ -538,18 +519,22 @@ handle_publish_authz_broker_request(
 %     delete_dynsub(Subject, Data),
 
 %     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, Time),
+%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, State#state.time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, Time),
+%     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, State#state.time),
 %     ok.
 
--spec handle_message_properties(message(), client_id(), client_id(), non_neg_integer())
+-spec handle_message_properties(message(), client_id(), client_id(), state())
     -> message().
-handle_message_properties(Message, ClientId, BrokerId, Time) ->
+handle_message_properties(Message, ClientId, BrokerId, State) ->
     UpdatedProperties =
         validate_message_properties(
-            update_message_properties(Message#message.properties, ClientId, BrokerId, Time),
+            update_message_properties(
+                Message#message.properties,
+                ClientId,
+                BrokerId,
+                State#state.time),
             ClientId),
 
     Message#message{
@@ -819,25 +804,20 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% The only reason we need them now is the local state.
 %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
 %% https://github.com/vernemq/vernemq/issues/1326
--spec handle_deliver_authz_config(topic(), message(), client_id(), non_neg_integer()) -> message().
-handle_deliver_authz_config(Topic, Message, RecvId, Time) ->
-    case mqttgw_state:find(authz) of
-        {ok, disabled} ->
+-spec handle_deliver_authz_config(topic(), message(), client_id(), state()) -> message().
+handle_deliver_authz_config(Topic, Message, RecvId, State) ->
+    case State#state.config#config.authz of
+        disabled ->
             Message;
-        {ok, {enabled, BMe, _Config}} ->
+        {enabled, BMe, _Config} ->
             handle_deliver_authz_broker_request(
-                Topic, Message, broker_client_id(BMe), RecvId, Time);
-        _ ->
-            error_logger:warning_msg(
-                "Error on deliver: authz config isn't found for the agent = '~s'",
-                [agent_id(RecvId)]),
-            create_dynsub_error_response()
+                Topic, Message, broker_client_id(BMe), RecvId, State)
     end.
 
 -spec handle_deliver_authz_broker_request(
-    topic(), message(), client_id(), client_id(), non_neg_integer())
+    topic(), message(), client_id(), client_id(), state())
     -> message().
-handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, Time) ->
+handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, State) ->
     #message{properties = Props} = Message,
     case maps:find(p_response_topic, Props) of
         {ok, RTstr} ->
@@ -845,7 +825,7 @@ handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, Time) ->
                 %% We consider the request as a broker request if "response topic" matches "topic".
                 [<<"agents">>, _, <<"api">>, Version, <<"in">>, App] = RT when RT =:= Topic ->
                     handle_deliver_authz_broker_request_payload(
-                        Version, App, Message, BrokerId, RecvId, Time);
+                        Version, App, Message, BrokerId, RecvId, State);
                 _ ->
                     Message
             end;
@@ -854,11 +834,11 @@ handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, Time) ->
     end.
 
 -spec handle_deliver_authz_broker_request_payload(
-    binary(), binary(), message(), client_id(), client_id(), non_neg_integer())
+    binary(), binary(), message(), client_id(), client_id(), state())
     -> message().
 handle_deliver_authz_broker_request_payload(
     Version, App, #message{payload = Payload, properties = Properties} =Message,
-    BrokerId, RecvId, Time) ->
+    BrokerId, RecvId, State) ->
     #client_id{mode=Mode} = RecvId,
 
     try {jsx:decode(Payload, [return_maps]), parse_deliver_broker_request_properties(Properties)} of
@@ -872,7 +852,7 @@ handle_deliver_authz_broker_request_payload(
                 case catch parse_client_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_create_request(
-                            Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time);
+                            Version, App, Object, Subject, CorrData, BrokerId, ClientId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
                         %% for a different than the subject agent
@@ -888,7 +868,7 @@ handle_deliver_authz_broker_request_payload(
                 case catch parse_client_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_delete_request(
-                            Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time);
+                            Version, App, Object, Subject, CorrData, BrokerId, ClientId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
                         %% for a different than the subject agent
@@ -912,37 +892,37 @@ handle_deliver_authz_broker_request_payload(
 
 -spec handle_deliver_authz_broker_dynsub_create_request(
     binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-    binary(), client_id(), client_id(), non_neg_integer())
+    binary(), client_id(), client_id(), state())
     -> message().
 handle_deliver_authz_broker_dynsub_create_request(
-    Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time) ->
+    Version, App, Object, Subject, CorrData, BrokerId, ClientId, State) ->
 
     %% Subscribe the agent to the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     create_dynsub(Subject, Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, Time),
+    send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, State#state.time),
 
     %% Send an unicast response to the 3rd-party agent
-    create_dynsub_response(CorrData, BrokerId, ClientId, Time).
+    create_dynsub_response(CorrData, BrokerId, ClientId, State#state.time).
 
 -spec handle_deliver_authz_broker_dynsub_delete_request(
     binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-    binary(), client_id(), client_id(), non_neg_integer())
+    binary(), client_id(), client_id(), state())
     -> message().
 handle_deliver_authz_broker_dynsub_delete_request(
-    Version, App, Object, Subject, CorrData, BrokerId, ClientId, Time) ->
+    Version, App, Object, Subject, CorrData, BrokerId, ClientId, State) ->
 
     %% Unsubscribe the agent from the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     delete_dynsub(Subject, Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, Time),
+    send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, State#state.time),
 
     %% Send an unicast response to the 3rd-party agent
-    create_dynsub_response(CorrData, BrokerId, ClientId, Time).
+    create_dynsub_response(CorrData, BrokerId, ClientId, State#state.time).
 
 -spec create_dynsub_response(binary(), client_id(), client_id(), non_neg_integer()) -> message().
 create_dynsub_response(CorrData, BrokerId, SenderId, Time) ->
@@ -988,9 +968,9 @@ parse_deliver_broker_request_properties(Properties) ->
           #{label => AgentLabel, account_id => #{label => AccountLabel, audience => Audience}})}.
 %% <<<<< END
 
--spec handle_deliver_mqtt3(topic(), binary(), client_id(), non_neg_integer())
+-spec handle_deliver_mqtt3(topic(), binary(), client_id(), state())
     -> ok | {ok, list()} | {error, error()}.
-handle_deliver_mqtt3(Topic, InputPayload, RecvId, Time) ->
+handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
     #client_id{mode=Mode} = RecvId,
 
     %% TODO: remove the local state, remove "handle_deliver_authz_config"
@@ -999,9 +979,9 @@ handle_deliver_mqtt3(Topic, InputPayload, RecvId, Time) ->
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(default, InputPayload))),
             RecvId,
-            Time) of
+            State) of
         InputMessage ->
-            handle_deliver_mqtt3_changes(Mode, InputMessage, Time)
+            handle_deliver_mqtt3_changes(Mode, InputMessage, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -1012,21 +992,21 @@ handle_deliver_mqtt3(Topic, InputPayload, RecvId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_deliver_mqtt3_changes(connection_mode(), message(), non_neg_integer())
+-spec handle_deliver_mqtt3_changes(connection_mode(), message(), state())
     -> ok | {ok, list()}.
-handle_deliver_mqtt3_changes(service_payload_only, Message, _Time) ->
+handle_deliver_mqtt3_changes(service_payload_only, Message, _State) ->
     #message{payload = Payload} = Message,
     {ok, [{payload, Payload}]};
-handle_deliver_mqtt3_changes(_Mode, Message, Time) ->
+handle_deliver_mqtt3_changes(_Mode, Message, State) ->
     #message{properties=Properties} = Message,
     ModifiedMessage = Message#message{
-        properties=update_deliver_message_properties(Properties, Time)},
+        properties=update_deliver_message_properties(Properties, State#state.time)},
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
 -spec handle_deliver_mqtt5(
-    topic(), binary(), map(), client_id(), non_neg_integer())
+    topic(), binary(), map(), client_id(), state())
     -> ok | {ok, map()} | {error, error()}.
-handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, Time) ->
+handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
     #client_id{mode=Mode} = RecvId,
 
     %% TODO: don't modify message payload on publish (only properties)
@@ -1039,9 +1019,9 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, Time) ->
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(default, InputPayload))),
             RecvId,
-            Time) of
+            State) of
         InputMessage ->
-            handle_deliver_mqtt5_changes(Mode, InputMessage, Time)
+            handle_deliver_mqtt5_changes(Mode, InputMessage, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -1052,13 +1032,13 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_deliver_mqtt5_changes(connection_mode(), message(), non_neg_integer())
+-spec handle_deliver_mqtt5_changes(connection_mode(), message(), state())
     -> ok | {ok, map()}.
-handle_deliver_mqtt5_changes(_Mode, Message, Time) ->
+handle_deliver_mqtt5_changes(_Mode, Message, State) ->
     #message{payload=Payload, properties=Properties} = Message,
     Changes =
         #{payload => Payload,
-          properties => update_deliver_message_properties(Properties, Time)},
+          properties => update_deliver_message_properties(Properties, State#state.time)},
     {ok, Changes}.
 
 -spec update_deliver_message_properties(map(), non_neg_integer()) -> map().
@@ -1076,22 +1056,17 @@ update_deliver_message_properties(Properties, Time) ->
 %% API: Subscribe
 %% =============================================================================
 
--spec handle_subscribe_authz([subscription()], client_id()) ->ok | {error, error()}.
-handle_subscribe_authz(Subscriptions, ClientId) ->
-    handle_subscribe_authz_config(Subscriptions, ClientId).
+-spec handle_subscribe_authz([subscription()], client_id(), state()) ->ok | {error, error()}.
+handle_subscribe_authz(Subscriptions, ClientId, State) ->
+    handle_subscribe_authz_config(Subscriptions, ClientId, State).
 
--spec handle_subscribe_authz_config([subscription()], client_id()) ->ok | {error, error()}.
-handle_subscribe_authz_config(Subscriptions, ClientId) ->
-    case mqttgw_state:find(authz) of
-        {ok, disabled} ->
+-spec handle_subscribe_authz_config([subscription()], client_id(), state()) ->ok | {error, error()}.
+handle_subscribe_authz_config(Subscriptions, ClientId, State) ->
+    case State#state.config#config.authz of
+        disabled ->
             handle_subscribe_success(Subscriptions, ClientId);
-        {ok, {enabled, _Me, _Config}} ->
-            handle_subscribe_authz_topic(Subscriptions, ClientId);
-        _ ->
-            error_logger:warning_msg(
-                "Error on subscribe: authz config isn't found for the agent = '~s'",
-                [agent_id(ClientId)]),
-            {error, not_authorized}
+        {enabled, _Me, _Config} ->
+            handle_subscribe_authz_topic(Subscriptions, ClientId)
     end.
 
 -spec handle_subscribe_authz_topic([subscription()], client_id()) ->ok | {error, error()}.
@@ -1157,21 +1132,21 @@ verify_subscribe_topic(Topic, _AccountId, AgentId, Mode)
 %% API: Broker Start
 %% =============================================================================
 
--spec handle_broker_start(non_neg_integer()) -> ok.
-handle_broker_start(Time) ->
-    handle_broker_start_stat_config(Time).
+-spec handle_broker_start(state()) -> ok.
+handle_broker_start(State) ->
+    handle_broker_start_stat_config(State).
 
--spec handle_broker_start_stat_config(non_neg_integer()) -> ok.
-handle_broker_start_stat_config(Time) ->
-    case mqttgw_state:find(stat) of
-        {ok, {enabled, BMe}} ->
+-spec handle_broker_start_stat_config(state()) -> ok.
+handle_broker_start_stat_config(State) ->
+    case State#state.config#config.stat of
+        {enabled, BMe} ->
             BrokerId = broker_client_id(BMe),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 <<"agent.enter">>,
                 BrokerId,
                 BrokerId,
-                Time),
+                State#state.time),
             handle_broker_start_success();
         _ ->
             handle_broker_start_success()
@@ -1184,31 +1159,31 @@ handle_broker_start_success() ->
 %% API: Broker Stop
 %% =============================================================================
 
--spec handle_broker_stop(non_neg_integer()) -> ok.
-handle_broker_stop(Time) ->
-    handle_broker_stop_authz_config(Time).
+-spec handle_broker_stop(state()) -> ok.
+handle_broker_stop(State) ->
+    handle_broker_stop_authz_config(State).
 
--spec handle_broker_stop_authz_config(non_neg_integer()) -> ok.
-handle_broker_stop_authz_config(Time) ->
-    case mqttgw_state:find(authz) of
-        {ok, {enabled, BMe, _Config}} ->
-            erase_dynsubs(broker_client_id(BMe), Time),
-            handle_broker_stop_stat_config(Time);
+-spec handle_broker_stop_authz_config(state()) -> ok.
+handle_broker_stop_authz_config(State) ->
+    case State#state.config#config.authz of
+        {enabled, BMe, _Config} ->
+            erase_dynsubs(broker_client_id(BMe), State#state.time),
+            handle_broker_stop_stat_config(State);
         _ ->
-            handle_broker_stop_stat_config(Time)
+            handle_broker_stop_stat_config(State)
     end.
 
--spec handle_broker_stop_stat_config(non_neg_integer()) -> ok.
-handle_broker_stop_stat_config(Time) ->
-    case mqttgw_state:find(stat) of
-        {ok, {enabled, BMe}} ->
+-spec handle_broker_stop_stat_config(state()) -> ok.
+handle_broker_stop_stat_config(State) ->
+    case State#state.config#config.stat of
+        {enabled, BMe} ->
             BrokerId = broker_client_id(BMe),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 <<"agent.leave">>,
                 BrokerId,
                 BrokerId,
-                Time),
+                State#state.time),
             handle_broker_stop_success();
         _ ->
             handle_broker_stop_success()
@@ -1224,24 +1199,26 @@ handle_broker_stop_success() ->
 -spec start() -> ok.
 start() ->
     {ok, _} = application:ensure_all_started(?APP),
-    mqttgw_state:put(id, mqttgw_id:read_config()),
-    mqttgw_state:put(authn, mqttgw_authn:read_config()),
-    mqttgw_state:put(authz, mqttgw_authz:read_config()),
-    mqttgw_state:put(stat, mqttgw_stat:read_config()),
-    Time = os:system_time(millisecond),
-    handle_broker_start(Time),
+    Config =
+        #config{
+            id=mqttgw_id:read_config(),
+            authn=mqttgw_authn:read_config(),
+            authz=mqttgw_authz:read_config(),
+            stat=mqttgw_stat:read_config()},
+    mqttgw_state:put(config, Config),
+
+    handle_broker_start(broker_state(Config, os:system_time(millisecond))),
     ok.
 
 -spec stop() -> ok.
 stop() ->
-    Time = os:system_time(millisecond),
-    handle_broker_stop(Time).
+    handle_broker_stop(broker_state(mqttgw_state:get(config), os:system_time(millisecond))).
 
 auth_on_register(
     _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
     Password, CleanSession) ->
-    Time = os:system_time(millisecond),
-    case handle_connect(Conn, Password, CleanSession, Time) of
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    case handle_connect(Conn, Password, CleanSession, State) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -1251,41 +1228,40 @@ auth_on_register(
 auth_on_register_m5(
     _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
     Password, CleanSession, _Properties) ->
-    Time = os:system_time(millisecond),
-    handle_connect(Conn, Password, CleanSession, Time).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_connect(Conn, Password, CleanSession, State).
 
 auth_on_publish(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain) ->
-    Time = os:system_time(millisecond),
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
     handle_publish_mqtt3_constraints(
-        Topic, Payload, QoS, IsRetain,
-        parse_client_id(Conn), Time).
+        Topic, Payload, QoS, IsRetain, parse_client_id(Conn), State).
 
 auth_on_publish_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain, Properties) ->
-    Time = os:system_time(millisecond),
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
     handle_publish_mqtt5_constraints(
-        Topic, Payload, Properties, QoS, IsRetain,
-        parse_client_id(Conn), Time).
+        Topic, Payload, Properties, QoS, IsRetain, parse_client_id(Conn), State).
 
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Topic, Payload) ->
-    Time = os:system_time(millisecond),
-    handle_deliver_mqtt3(Topic, Payload, parse_client_id(Conn), Time).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_deliver_mqtt3(Topic, Payload, parse_client_id(Conn), State).
 
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Topic, Payload, Properties) ->
-    Time = os:system_time(millisecond),
-    handle_deliver_mqtt5(Topic, Payload, Properties, parse_client_id(Conn), Time).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_deliver_mqtt5(Topic, Payload, Properties, parse_client_id(Conn), State).
 
 auth_on_subscribe(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions) ->
-    case handle_subscribe_authz(Subscriptions, parse_client_id(Conn)) of
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    case handle_subscribe_authz(Subscriptions, parse_client_id(Conn), State) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -1295,15 +1271,16 @@ auth_on_subscribe(
 auth_on_subscribe_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions, _Properties) ->
-    handle_subscribe_authz(Subscriptions, parse_client_id(Conn)).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_subscribe_authz(Subscriptions, parse_client_id(Conn), State).
 
 on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
-    Time = os:system_time(millisecond),
-    handle_disconnect(Conn, Time).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_disconnect(Conn, State).
 
 on_client_gone({_MountPoint, Conn} = _SubscriberId) ->
-    Time = os:system_time(millisecond),
-    handle_disconnect(Conn, Time).
+    State = broker_state(mqttgw_state:get(config), os:system_time(millisecond)),
+    handle_disconnect(Conn, State).
 
 %% =============================================================================
 %% Internal functions
@@ -1334,6 +1311,10 @@ broker_client_id(Mode, AgentId) ->
          agent_label = mqttgw_id:label(AgentId),
          account_label = mqttgw_id:account_label(AgentId),
          audience = mqttgw_id:audience(AgentId)}.
+
+-spec broker_state(config(), non_neg_integer()) -> state().
+broker_state(Config, Time) ->
+    #state{config=Config, time=Time}.
 
 -spec validate_client_id(client_id()) -> client_id().
 validate_client_id(Val) ->
@@ -1769,32 +1750,35 @@ qos_t() ->
 
 prop_onconnect() ->
     ?FORALL(
-        {Peer, SubscriberId, Username, Password},
-        {any(), subscriber_id_t(), binary_utf8_t(), binary_utf8_t()},
+        {SubscriberId, Password},
+        {subscriber_id_t(), binary_utf8_t()},
         begin
             CleanSession = minimal_constraint(clean_session),
 
-            mqttgw_state:new(),
-            mqttgw_state:put(authn, disabled),
-            mqttgw_state:put(authz, disabled),
-            mqttgw_state:put(stat, disabled),
-            ok = auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
-            ok = auth_on_register_m5(Peer, SubscriberId, Username, Password, CleanSession, #{}),
+            Time = 0,
+            BMe = make_sample_me(),
+            Conn = element(2, SubscriberId),
+            Config = #config{id=make_sample_me(), authn=disabled, authz=disabled, stat=disabled},
+            State = broker_state(Config, Time),
+
+            ok = handle_connect(Conn, Password, CleanSession, State),
             true
         end).
 
 prop_onconnect_invalid_credentials() ->
     ?FORALL(
-        {Peer, MountPoint, ClientId, Username, Password, InCleanSession},
-        {any(), string(), binary(32), binary_utf8_t(), binary_utf8_t(), boolean()},
+        {Conn, Password},
+        {binary(32), binary_utf8_t()},
         begin
             CleanSession = minimal_constraint(clean_session),
 
-            SubscriberId = {MountPoint, ClientId},
-            {error, client_identifier_not_valid} =
-                auth_on_register(Peer, SubscriberId, Username, Password, CleanSession),
+            Time = 0,
+            BMe = make_sample_me(),
+            Config = #config{id=make_sample_me(), authn=disabled, authz=disabled, stat=disabled},
+            State = broker_state(Config, Time),
+
             {error, #{reason_code := client_identifier_not_valid}} =
-                auth_on_register_m5(Peer, SubscriberId, Username, Password, CleanSession, #{}),
+                handle_connect(Conn, Password, CleanSession, State),
             true
         end).
 
@@ -1829,40 +1813,57 @@ authz_onconnect_test_() ->
           ok }
     ],
 
-    mqttgw_state:new(),
     %% 1 - authn: enabled, authz: disabled
     %% Anyone can connect in any mode when authz is dissabled
-    mqttgw_state:put(authn, {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)}),
-    mqttgw_state:put(authz, disabled),
-    mqttgw_state:put(stat, disabled),
+    State1 = broker_state(
+        #config{
+            id=BMe,
+            authn={enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
+            authz=disabled,
+            stat=disabled},
+        Time),
     [begin
         [begin
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password, CleanSession, Time))}
+            {Desc, ?_assertEqual(ok, handle_connect(ClientId, Password, CleanSession, State1))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, _Result} <- Test],
+
     %% 2 - authn: enabled, authz: enabled
     %% User accounts can connect only in 'default' mode
     %% Service accounts can connect in any mode
-    mqttgw_state:put(authz, {enabled, BMe, AuthzConfig}),
+    State2 = broker_state(
+        #config{
+            id=BMe,
+            authn={enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
+            authz={enabled, BMe, AuthzConfig},
+            stat=disabled},
+        Time),
     [begin
         [begin
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession, Time))}
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession, State2))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test],
+
     %% 3 - authn: disabled, authz: enabled
-    mqttgw_state:put(authn, disabled),
+    State3 = broker_state(
+        #config{
+            id=BMe,
+            authn=disabled,
+            authz={enabled, BMe, AuthzConfig},
+            stat=disabled},
+        Time),
     [begin
         [begin
             ClientId =
                 make_sample_connection_client_id(
                     AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
-            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession, Time))}
+            {Desc, ?_assertEqual(Result, handle_connect(ClientId, Password, CleanSession, State3))}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Result} <- Test].
 
@@ -1879,9 +1880,6 @@ message_connect_constraints_test_() ->
         {"nontrusted: w/o clean_session", [false], NonTrustedMode, error}
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
-    mqttgw_state:put(stat, disabled),
     [begin
         [begin
             [begin
@@ -1909,9 +1907,10 @@ prop_onpublish() ->
             Time = 0,
             TimeB = TimeDiffB = integer_to_binary(Time),
 
-            mqttgw_state:new(),
-            mqttgw_state:put(id, BMe),
-            mqttgw_state:put(authz, disabled),
+            State = broker_state(
+                #config{id=BMe, authn=disabled, authz=disabled, stat=disabled},
+                Time),
+
             #client_id{
                 mode=Mode,
                 agent_label=AgentLabel,
@@ -1957,7 +1956,7 @@ prop_onpublish() ->
                 {ok, Modifiers} =
                     handle_publish_mqtt5_constraints(
                         Topic, InputPayload, InputProperties, QoS, IsRetain,
-                        ClientId, Time),
+                        ClientId, State),
 
                 %% TODO: don't modify message payload on publish (only properties)
                 %% InputPayload = maps:get(payload, Modifiers),
@@ -1990,7 +1989,7 @@ prop_onpublish() ->
                 {ok, Modifiers3} =
                     handle_publish_mqtt3_constraints(
                         Topic, InputMessage3, QoS, IsRetain,
-                        ClientId, Time),
+                        ClientId, State),
                 {_, ExpectedMessage3} = lists:keyfind(payload, 1, Modifiers3)
             end,
 
@@ -2010,19 +2009,21 @@ bridge_missing_properties_onpublish_test_() ->
          {"missing account_label", #{<<"agent_label">> => <<>>, <<"audience">> => <<>>}},
          {"missing audience", #{<<"agent_label">> => <<>>, <<"account_label">> => <<>>}}],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(id, BMe),
-    mqttgw_state:put(authz, disabled),
+    State = broker_state(
+        #config{id=BMe, authn=disabled, authz=disabled, stat=disabled},
+        Time),
+
     [begin
         Message = jsx:encode(#{payload => <<>>, properties => Properties}),
         Expect = {error, #{reason_code => impl_specific_error}},
 
-        [{Desc, ?_assertEqual(Expect, handle_publish_mqtt5([], Message, #{}, ClientId, Time))},
-         {Desc, ?_assertEqual(Expect, handle_publish_mqtt3([], Message, ClientId, Time))}]
+        [{Desc, ?_assertEqual(Expect, handle_publish_mqtt5([], Message, #{}, ClientId, State))},
+         {Desc, ?_assertEqual(Expect, handle_publish_mqtt3([], Message, ClientId, State))}]
      end || {Desc, Properties} <- Test].
 
 authz_onpublish_test_() ->
     Time = 0,
+    BMe = maps:get(me, make_sample_me(<<"aud">>, [])),
 
     %% Broadcast:
     %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
@@ -2051,14 +2052,16 @@ authz_onpublish_test_() ->
         {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, {enabled, maps:get(me, make_sample_me(<<"aud">>, [])), ignore}),
+    State = broker_state(
+        #config{id=BMe, authn=disabled, authz={enabled, BMe, ignore}, stat=disabled},
+        Time),
+
     [begin
         [begin
             Message = make_sample_message_bridgecompat(Mode, Time),
             ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
             Result =
-                case handle_publish_authz(TopicFn(ClientId), Message, ClientId, Time) of
+                case handle_publish_authz(TopicFn(ClientId), Message, ClientId, State) of
                     ok -> ok;
                     {error, _} -> error
                 end,
@@ -2082,8 +2085,6 @@ message_publish_constraints_test_() ->
         {"nonsvc: w/o retain", MinQoS, [false], NonServiceMode}
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
     [begin
         [begin
             [begin
@@ -2168,13 +2169,15 @@ message_properties_required_test_() ->
           error }
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
+    State = broker_state(
+        #config{id=BrokerId, authn=disabled, authz=disabled, stat=disabled},
+        Time),
+
     [begin
         [begin
             Message = make_sample_message_bridgecompat(Mode, Time, <<>>, Props),
             Result =
-                try handle_message_properties(Message, ClientId(Mode), BrokerId, Time) of
+                try handle_message_properties(Message, ClientId(Mode), BrokerId, State) of
                     _ ->
                         ok
                 catch
@@ -2255,13 +2258,15 @@ message_properties_optional_test_() ->
           ok }
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
+    State = broker_state(
+        #config{id=BrokerId, authn=disabled, authz=disabled, stat=disabled},
+        Time1),
+
     [begin
         [begin
             Message = make_sample_message_bridgecompat(Mode, Time0, <<>>, InProps),
             Result =
-                try handle_message_properties(Message, ClientId(Mode), BrokerId, Time1) of
+                try handle_message_properties(Message, ClientId(Mode), BrokerId, State) of
                     M ->
                         UserProperties = maps:get(p_user_property, M#message.properties),
                         IsPropMatch =
@@ -2305,14 +2310,14 @@ prop_ondeliver() ->
             InputProperties = ExpectedAuthnUserL,
             InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
-            mqttgw_state:new(),
-            mqttgw_state:put(id, BMe),
-            mqttgw_state:put(authz, disabled),
+            State = broker_state(
+                #config{id=BMe, authn=disabled, authz=disabled, stat=disabled},
+                Time),
 
             %% MQTT 5
             begin
                 {ok, Modifiers} =
-                    handle_deliver_mqtt5(Topic, InputPayload, #{}, ClientId, Time),
+                    handle_deliver_mqtt5(Topic, InputPayload, #{}, ClientId, State),
                 Payload = maps:get(payload, Modifiers)
             end,
 
@@ -2328,7 +2333,7 @@ prop_ondeliver() ->
                     end,
 
                 {ok, Modifiers3} =
-                    handle_deliver_mqtt3(Topic, InputPayload, ClientId, Time),
+                    handle_deliver_mqtt3(Topic, InputPayload, ClientId, State),
                 {_, ExpectedPayload3} = lists:keyfind(payload, 1, Modifiers3)
             end,
 
@@ -2336,12 +2341,19 @@ prop_ondeliver() ->
         end).
 
 prop_onsubscribe() ->
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, disabled),
     ?FORALL(
-        {Username, SubscriberId, Topics},
+        {Username, SubscriberId, Subscription},
         {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},
-        ok =:= auth_on_subscribe(Username, SubscriberId, Topics)).
+        begin
+            Time = 0,
+            BMe = make_sample_me(),
+            State = broker_state(
+                #config{id=BMe, authn=disabled, authz=disabled, stat=disabled},
+                Time),
+
+            ClientId = parse_client_id(element(2, SubscriberId)),
+            ok =:= handle_subscribe_authz(Subscription, ClientId, State)
+        end).
 
 authz_onsubscribe_test_() ->
     %% Broadcast:
@@ -2372,15 +2384,19 @@ authz_onsubscribe_test_() ->
         {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
     ],
 
-    mqttgw_state:new(),
-    mqttgw_state:put(authz, {enabled, ignore, ignore}),
+    Time = 0,
+    BMe = make_sample_me(),
+    State = broker_state(
+        #config{id=BMe, authn=disabled, authz={enabled, ignore, ignore}, stat=disabled},
+        Time),
+
     [begin
         [begin
             ClientId = make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode),
             SubscriptionStd = [{TopicFn(ClientId), 0}],
             SubscriptionShared = [{[<<"$share">>, <<"g">> | TopicFn(ClientId)], 0}],
-            ResultStd = handle_subscribe_authz(SubscriptionStd, ClientId),
-            ResultShared = handle_subscribe_authz(SubscriptionShared, ClientId),
+            ResultStd = handle_subscribe_authz(SubscriptionStd, ClientId, State),
+            ResultShared = handle_subscribe_authz(SubscriptionShared, ClientId, State),
             [{Desc, ?_assertEqual(Expect, ResultStd)},
              {Desc ++ "– shared", ?_assertEqual(Expect, ResultShared)}]
         end || Mode <- Modes]
