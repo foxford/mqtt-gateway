@@ -200,11 +200,12 @@ handle_connect_stat_config(ClientId, State) ->
     case State#state.config#config.stat of
         disabled ->
             handle_connect_success(ClientId);
-        {enabled, BMe} ->
+        enabled ->
+            BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(ClientId)},
                   <<"agent.enter">>,
-                  broker_client_id(BMe),
+                  BrokerId,
                   ClientId,
                   State#state.time),
             handle_connect_success(ClientId)
@@ -260,11 +261,12 @@ handle_disconnect_stat_config(ClientId, State) ->
     case State#state.config#config.stat of
         disabled ->
             handle_disconnect_success(ClientId);
-        {enabled, BMe} ->
+        enabled ->
+            BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(ClientId)},
                   <<"agent.leave">>,
-                  broker_client_id(BMe),
+                  BrokerId,
                   ClientId,
                   State#state.time),
             handle_disconnect_success(ClientId)
@@ -1143,8 +1145,8 @@ handle_broker_start(State) ->
 -spec handle_broker_start_stat_config(state()) -> ok.
 handle_broker_start_stat_config(State) ->
     case State#state.config#config.stat of
-        {enabled, BMe} ->
-            BrokerId = broker_client_id(BMe),
+        enabled ->
+            BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                   <<"agent.enter">>,
@@ -1181,8 +1183,8 @@ handle_broker_stop_authz_config(State) ->
 -spec handle_broker_stop_stat_config(state()) -> ok.
 handle_broker_stop_stat_config(State) ->
     case State#state.config#config.stat of
-        {enabled, BMe} ->
-            BrokerId = broker_client_id(BMe),
+        enabled ->
+            BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                   <<"agent.leave">>,
