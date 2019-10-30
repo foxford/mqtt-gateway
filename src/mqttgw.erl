@@ -168,8 +168,9 @@ handle_connect_authz_config(ClientId, AccountId, State) ->
     case State#state.config#config.authz of
         disabled ->
             handle_connect_stat_config(ClientId, State);
-        {enabled, BMe, Config} ->
-            handle_connect_authz(Mode, ClientId, AccountId, broker_client_id(BMe), Config, State)
+        {enabled, Config} ->
+            BrokerId = broker_client_id(State#state.config#config.id),
+            handle_connect_authz(Mode, ClientId, AccountId, BrokerId, Config, State)
     end.
 
 -spec handle_connect_authz(
@@ -202,10 +203,10 @@ handle_connect_stat_config(ClientId, State) ->
         {enabled, BMe} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
-                <<"agent.enter">>,
-                broker_client_id(BMe),
-                ClientId,
-                State#state.time),
+                  <<"agent.enter">>,
+                  broker_client_id(BMe),
+                  ClientId,
+                  State#state.time),
             handle_connect_success(ClientId)
     end.
 
@@ -248,8 +249,9 @@ handle_disconnect_authz_config(Conn, ClientId, State) ->
     case State#state.config#config.authz of
         disabled ->
             handle_disconnect_stat_config(ClientId, State);
-        {enabled, BMe, _} ->
-            delete_client_dynsubs(Conn, broker_client_id(BMe), State#state.time),
+        {enabled, _Config} ->
+            BrokerId = broker_client_id(State#state.config#config.id),
+            delete_client_dynsubs(Conn, BrokerId, State#state.time),
             handle_disconnect_stat_config(ClientId, State)
     end.
 
@@ -261,10 +263,10 @@ handle_disconnect_stat_config(ClientId, State) ->
         {enabled, BMe} ->
             send_audience_event(
                 #{id => agent_id(ClientId)},
-                <<"agent.leave">>,
-                broker_client_id(BMe),
-                ClientId,
-                State#state.time),
+                  <<"agent.leave">>,
+                  broker_client_id(BMe),
+                  ClientId,
+                  State#state.time),
             handle_disconnect_success(ClientId)
     end.
 
@@ -399,8 +401,9 @@ handle_publish_authz_config(Topic, Message, ClientId, State) ->
     case State#state.config#config.authz of
         disabled ->
             ok;
-        {enabled, BMe, _Config} ->
-            handle_publish_authz_topic(Topic, Message, broker_client_id(BMe), ClientId, State)
+        {enabled, _Config} ->
+            BrokerId = broker_client_id(State#state.config#config.id),
+            handle_publish_authz_topic(Topic, Message, BrokerId, ClientId, State)
     end.
 
 -spec handle_publish_authz_topic(topic(), message(), client_id(), client_id(), state())
@@ -809,9 +812,10 @@ handle_deliver_authz_config(Topic, Message, RecvId, State) ->
     case State#state.config#config.authz of
         disabled ->
             Message;
-        {enabled, BMe, _Config} ->
+        {enabled, _Config} ->
+            BrokerId = broker_client_id(State#state.config#config.id),
             handle_deliver_authz_broker_request(
-                Topic, Message, broker_client_id(BMe), RecvId, State)
+                Topic, Message, BrokerId, RecvId, State)
     end.
 
 -spec handle_deliver_authz_broker_request(
@@ -1065,7 +1069,7 @@ handle_subscribe_authz_config(Subscriptions, ClientId, State) ->
     case State#state.config#config.authz of
         disabled ->
             handle_subscribe_success(Subscriptions, ClientId);
-        {enabled, _Me, _Config} ->
+        {enabled, _Config} ->
             handle_subscribe_authz_topic(Subscriptions, ClientId)
     end.
 
@@ -1143,10 +1147,10 @@ handle_broker_start_stat_config(State) ->
             BrokerId = broker_client_id(BMe),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
-                <<"agent.enter">>,
-                BrokerId,
-                BrokerId,
-                State#state.time),
+                  <<"agent.enter">>,
+                  BrokerId,
+                  BrokerId,
+                  State#state.time),
             handle_broker_start_success();
         _ ->
             handle_broker_start_success()
@@ -1166,8 +1170,9 @@ handle_broker_stop(State) ->
 -spec handle_broker_stop_authz_config(state()) -> ok.
 handle_broker_stop_authz_config(State) ->
     case State#state.config#config.authz of
-        {enabled, BMe, _Config} ->
-            erase_dynsubs(broker_client_id(BMe), State#state.time),
+        {enabled, _Config} ->
+            BrokerId = broker_client_id(State#state.config#config.id),
+            erase_dynsubs(BrokerId, State#state.time),
             handle_broker_stop_stat_config(State);
         _ ->
             handle_broker_stop_stat_config(State)
@@ -1180,10 +1185,10 @@ handle_broker_stop_stat_config(State) ->
             BrokerId = broker_client_id(BMe),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
-                <<"agent.leave">>,
-                BrokerId,
-                BrokerId,
-                State#state.time),
+                  <<"agent.leave">>,
+                  BrokerId,
+                  BrokerId,
+                  State#state.time),
             handle_broker_stop_success();
         _ ->
             handle_broker_stop_success()
@@ -1838,7 +1843,7 @@ authz_onconnect_test_() ->
         #config{
             id=BMe,
             authn={enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
-            authz={enabled, BMe, AuthzConfig},
+            authz={enabled, AuthzConfig},
             stat=disabled},
         Time),
     [begin
@@ -1855,7 +1860,7 @@ authz_onconnect_test_() ->
         #config{
             id=BMe,
             authn=disabled,
-            authz={enabled, BMe, AuthzConfig},
+            authz={enabled, AuthzConfig},
             stat=disabled},
         Time),
     [begin
@@ -2053,7 +2058,7 @@ authz_onpublish_test_() ->
     ],
 
     State = broker_state(
-        #config{id=BMe, authn=disabled, authz={enabled, BMe, ignore}, stat=disabled},
+        #config{id=BMe, authn=disabled, authz={enabled, ignore}, stat=disabled},
         Time),
 
     [begin
@@ -2387,7 +2392,7 @@ authz_onsubscribe_test_() ->
     Time = 0,
     BMe = make_sample_me(),
     State = broker_state(
-        #config{id=BMe, authn=disabled, authz={enabled, ignore, ignore}, stat=disabled},
+        #config{id=BMe, authn=disabled, authz={enabled, ignore}, stat=disabled},
         Time),
 
     [begin
