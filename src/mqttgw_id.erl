@@ -54,7 +54,7 @@ format_account_id(AgentId) ->
 format_agent_id(AgentId) ->
     #{label := Label,
       account_id := AccountId} = AgentId,
-    <<Label/binary, $., (mqttgw_authn:format_account_id(AccountId))/binary>>.
+      <<Label/binary, $., (mqttgw_authn:format_account_id(AccountId))/binary>>.
 
 %% =============================================================================
 %% Internal functions

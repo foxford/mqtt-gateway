@@ -24,10 +24,9 @@ read_config() ->
             disabled;
         _ ->
             TomlConfig = mqttgw_config:read_config_file(),
-            Id = mqttgw_id:read_config_file(TomlConfig),
             Config = read_config_file(TomlConfig),
-            error_logger:info_msg("[CONFIG] Authz is loaded: ~p, ~p~n", [Id, Config]),
-            {enabled, Id, Config}
+            error_logger:info_msg("[CONFIG] Authz is loaded: ~p~n", [Config]),
+            {enabled, Config}
     end.
 
 -spec read_config_file(toml:config()) ->config().
