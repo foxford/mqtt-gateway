@@ -16,6 +16,5 @@ read_config() ->
             error_logger:info_msg("[CONFIG] Stat is disabled~n"),
             disabled;
         _ ->
-            Id = mqttgw_id:read_config(),
-            {enabled, Id}
+            enabled
     end.
