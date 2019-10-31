@@ -212,10 +212,11 @@ handle_connect_stat_config(ClientId, State) ->
             BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(ClientId)},
-                  <<"agent.enter">>,
-                  BrokerId,
-                  ClientId,
-                  State#state.time),
+                [ {<<"type">>, <<"event">>},
+                  {<<"label">>, <<"agent.enter">>} ],
+                BrokerId,
+                ClientId,
+                State#state.time),
             handle_connect_success(ClientId)
     end.
 
@@ -273,10 +274,11 @@ handle_disconnect_stat_config(ClientId, State) ->
             BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(ClientId)},
-                  <<"agent.leave">>,
-                  BrokerId,
-                  ClientId,
-                  State#state.time),
+                [ {<<"type">>, <<"event">>},
+                  {<<"label">>, <<"agent.leave">>} ],
+                BrokerId,
+                ClientId,
+                State#state.time),
             handle_disconnect_success(ClientId)
     end.
 
@@ -1157,10 +1159,11 @@ handle_broker_start_stat_config(State) ->
             BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
-                  <<"agent.enter">>,
-                  BrokerId,
-                  BrokerId,
-                  State#state.time),
+                [ {<<"type">>, <<"event">>},
+                  {<<"label">>, <<"agent.enter">>} ],
+                BrokerId,
+                BrokerId,
+                State#state.time),
             handle_broker_start_success();
         _ ->
             handle_broker_start_success()
@@ -1195,10 +1198,11 @@ handle_broker_stop_stat_config(State) ->
             BrokerId = broker_client_id(State#state.config#config.id),
             send_audience_event(
                 #{id => agent_id(BrokerId)},
-                  <<"agent.leave">>,
-                  BrokerId,
-                  BrokerId,
-                  State#state.time),
+                [ {<<"type">>, <<"event">>},
+                  {<<"label">>, <<"agent.leave">>} ],
+                BrokerId,
+                BrokerId,
+                State#state.time),
             handle_broker_stop_success();
         _ ->
             handle_broker_stop_success()
@@ -1630,8 +1634,8 @@ send_dynsub_event(Label, Subject, Data, SenderId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec send_audience_event(map(), binary(), client_id(), client_id(), non_neg_integer()) -> ok.
-send_audience_event(Payload, Label, SenderId, ClientId, Time) ->
+-spec send_audience_event(map(), list(), client_id(), client_id(), non_neg_integer()) -> ok.
+send_audience_event(Payload, UserProperties, SenderId, ClientId, Time) ->
     Topic = audience_event_topic(ClientId, SenderId),
     QoS = 1,
     try mqttgw_broker:publish(
@@ -1642,9 +1646,7 @@ send_audience_event(Payload, Label, SenderId, ClientId, Time) ->
                 properties =
                     validate_message_properties(
                         update_message_properties(
-                            #{p_user_property =>
-                                [ {<<"type">>, <<"event">>},
-                                  {<<"label">>, Label} ]},
+                            #{p_user_property => UserProperties},
                             SenderId,
                             SenderId,
                             Time
@@ -1657,10 +1659,10 @@ send_audience_event(Payload, Label, SenderId, ClientId, Time) ->
     catch
         T:R ->
             error_logger:error_msg(
-                "Error sending audience event: label = '~s', topic = `~p` "
+                "Error sending audience event: '~p', topic = `~p` "
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
-                [Label, Topic, agent_id(SenderId), T, R]),
+                [UserProperties, Topic, agent_id(SenderId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
