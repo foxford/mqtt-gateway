@@ -1156,11 +1156,22 @@ handle_broker_start(State) ->
 handle_broker_start_stat_config(State) ->
     case State#state.config#config.stat of
         enabled ->
-            BrokerId = broker_client_id(State#state.config#config.id),
+            #state{
+                config=#config{
+                    id=BMe,
+                    session=#broker_session{
+                        created_at=Ts,
+                        id=BrokerSessionId}}} = State,
+            BrokerId = broker_client_id(BMe),
+            SessionId = session_id(BrokerSessionId, BrokerSessionId),
+            TrackingId = tracking_id(make_uuid(), SessionId),
+
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.enter">>} ],
+                  {<<"label">>, <<"agent.enter">>},
+                  {<<"tracking_id">>, TrackingId},
+                  {<<"timestamp">>, Ts} ],
                 BrokerId,
                 BrokerId,
                 State#state.time),
@@ -1195,11 +1206,22 @@ handle_broker_stop_authz_config(State) ->
 handle_broker_stop_stat_config(State) ->
     case State#state.config#config.stat of
         enabled ->
-            BrokerId = broker_client_id(State#state.config#config.id),
+            #state{
+                config=#config{
+                    id=BMe,
+                    session=#broker_session{
+                        created_at=Ts,
+                        id=BrokerSessionId}}} = State,
+            BrokerId = broker_client_id(BMe),
+            SessionId = session_id(BrokerSessionId, BrokerSessionId),
+            TrackingId = tracking_id(make_uuid(), SessionId),
+
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.leave">>} ],
+                  {<<"label">>, <<"agent.leave">>},
+                  {<<"tracking_id">>, TrackingId},
+                  {<<"timestamp">>, Ts} ],
                 BrokerId,
                 BrokerId,
                 State#state.time),
@@ -1335,6 +1357,14 @@ broker_client_id(Mode, AgentId) ->
 -spec broker_state(config(), non_neg_integer()) -> state().
 broker_state(Config, Time) ->
     #state{config=Config, time=Time}.
+
+-spec tracking_id(binary(), binary()) -> binary().
+tracking_id(Label, SessionId) ->
+    <<Label/binary, $., SessionId/binary>>.
+
+-spec session_id(binary(), binary()) -> binary().
+session_id(AgentSessionId, BrokerSessionId) ->
+    <<AgentSessionId/binary, $., BrokerSessionId/binary>>.
 
 -spec make_broker_session() -> broker_session().
 make_broker_session() ->
