@@ -63,6 +63,7 @@
 -type client_id() :: #client_id{}.
 
 -record(session, {
+    parent_id  :: binary(),
     id         :: binary(),
     mode       :: connection_mode(),
     version    :: binary(),
@@ -230,10 +231,16 @@ handle_connect_stat_config(ClientId, State) ->
 handle_connect_success(ClientId, State) ->
     #client_id{mode=Mode} = ClientId,
 
+    %% Get the broker session id
+    Config = mqttgw_state:get(config),
+    BrokerId = broker_client_id(Config#config.id),
+    #session{id=ParentSessionId} = mqttgw_state:get(BrokerId),
+
     %% Create an agent session
     Ver = <<"v1">>,
     Session =
         #session{
+            parent_id=ParentSessionId,
             id=make_uuid(),
             mode=Mode,
             version=Ver,
@@ -1174,12 +1181,13 @@ handle_broker_start_stat_config(State) ->
         enabled ->
             #state{
                 session=#session{
-                    id=BrokerSessionId,
+                    parent_id=ParentSessionId,
+                    id=SessionId,
                     created_at=Ts},
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            SessionId = session_id(BrokerSessionId, BrokerSessionId),
+            SessionId = session_id(SessionId, ParentSessionId),
             TrackingId = tracking_id(make_uuid(), SessionId),
 
             send_audience_event(
@@ -1224,12 +1232,13 @@ handle_broker_stop_stat_config(State) ->
         enabled ->
             #state{
                 session=#session{
-                    id=BrokerSessionId,
+                    parent_id=ParentSessionId,
+                    id=SessionId,
                     created_at=Ts},
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            SessionId = session_id(BrokerSessionId, BrokerSessionId),
+            SessionId = session_id(SessionId, ParentSessionId),
             TrackingId = tracking_id(make_uuid(), SessionId),
 
             send_audience_event(
@@ -1273,6 +1282,7 @@ start() ->
     Time = os:system_time(millisecond),
     Session =
         #session{
+            parent_id=make_uuid(),
             id=make_uuid(),
             mode=Mode,
             version=Ver,
@@ -1286,8 +1296,8 @@ start() ->
 stop() ->
     Config = mqttgw_state:get(config),
     Time = os:system_time(millisecond),
-    ClientId = mqttgw_state:get(Config#config.id),
-    handle_broker_stop(broker_state(Config, ClientId, Time)).
+    ClientId = broker_client_id(Config#config.id),
+    handle_broker_stop(broker_state(Config, mqttgw_state:get(ClientId), Time)).
 
 auth_on_register(
     _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
@@ -1432,8 +1442,8 @@ tracking_id(Label, SessionId) ->
     <<Label/binary, $., SessionId/binary>>.
 
 -spec session_id(binary(), binary()) -> binary().
-session_id(AgentSessionId, BrokerSessionId) ->
-    <<AgentSessionId/binary, $., BrokerSessionId/binary>>.
+session_id(SessionId, ParentSessionId) ->
+    <<SessionId/binary, $., ParentSessionId/binary>>.
 
 -spec make_uuid() -> binary().
 make_uuid() ->
@@ -1877,12 +1887,16 @@ prop_onconnect() ->
             CleanSession = minimal_constraint(clean_session),
 
             Time = 0,
+            BMe = make_sample_me(),
+            BrokerId = broker_client_id(BMe),
             Conn = element(2, SubscriberId),
             Config = make_sample_config(disabled, disabled, disabled),
             State = broker_initial_state(Config, Time),
 
-            %% NOTE: we use it to store agent's initial state
+            %% NOTE: we use it to read the broker config and store agent's initial state
             mqttgw_state:new(),
+            mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BMe)),
+            mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
             ok = handle_connect(Conn, Password, CleanSession, State),
             true
@@ -1922,6 +1936,7 @@ authz_onconnect_test_() ->
         make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
     #{me := BMe,
       config := AuthzConfig} = make_sample_me(BMeAud, [SvcAccountId]),
+    BrokerId = broker_client_id(BMe),
 
     Test = [
         { "usr: allowed",
@@ -1935,8 +1950,10 @@ authz_onconnect_test_() ->
           ok }
     ],
 
-    %% NOTE: we use it to store agent's initial state
+    %% NOTE: we use it to read the broker config and store agent's initial state
     mqttgw_state:new(),
+    mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BMe)),
+    mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
     %% 1 - authn: enabled, authz: disabled
     %% Anyone can connect in any mode when authz is dissabled
@@ -1957,7 +1974,7 @@ authz_onconnect_test_() ->
             Result = handle_connect(ClientId, Password, CleanSession, State1(Mode)),
             {Desc, ?_assertEqual(ok, Result)}
         end || Mode <- Modes]
-    end || {Desc, Modes, Aud, Password, _Result} <- Test],
+    end || {Desc, Modes, Aud, Password, _Expect} <- Test],
 
     %% 2 - authn: enabled, authz: enabled
     %% User accounts can connect only in 'default' mode
@@ -2590,6 +2607,7 @@ make_sample_session() ->
 
 make_sample_session(Mode) ->
     #session{
+        parent_id= <<"00000000-0000-0000-0000-000000000001">>,
         id= <<"00000000-0000-0000-0000-000000000000">>,
         mode=Mode,
         version= <<"v1">>,
@@ -2597,6 +2615,7 @@ make_sample_session(Mode) ->
 
 make_sample_broker_session() ->
     #session{
+        parent_id= <<"00000000-0000-0000-0000-000000000000">>,
         id= <<"00000000-0000-0000-0000-000000000000">>,
         mode=service,
         version= <<"v1">>,
