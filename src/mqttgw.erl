@@ -182,7 +182,7 @@ handle_connect_authz_config(ClientId, AccountId, State) ->
 
     case State#initial_state.config#config.authz of
         disabled ->
-            handle_connect_stat_config(ClientId, State);
+            handle_connect_success(ClientId, State);
         {enabled, Config} ->
             BrokerId = broker_client_id(State#initial_state.config#config.id),
             handle_connect_authz(Mode, ClientId, AccountId, BrokerId, Config, State)
@@ -193,13 +193,13 @@ handle_connect_authz_config(ClientId, AccountId, State) ->
     client_id(), mqttgw_authz:config(), initial_state())
     -> ok | {error, error()}.
 handle_connect_authz(default, ClientId, _AccountId, _BrokerId, _Config, State) ->
-    handle_connect_stat_config(ClientId, State);
+    handle_connect_success(ClientId, State);
 handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config, State) ->
     #client_id{mode=Mode} = ClientId,
 
     try mqttgw_authz:authorize(BrokerId#client_id.audience, AccountId, Config) of
         _ ->
-            handle_connect_stat_config(ClientId, State)
+            handle_connect_success(ClientId, State)
     catch
         T:R ->
             error_logger:warning_msg(
@@ -208,23 +208,6 @@ handle_connect_authz(_Mode, ClientId, AccountId, BrokerId, Config, State) ->
                 "exception_type = ~p, exception_reason = ~p",
                 [Mode, agent_id(ClientId), T, R]),
             {error, #{reason_code => not_authorized}}
-    end.
-
--spec handle_connect_stat_config(client_id(), initial_state()) -> ok | {error, error()}.
-handle_connect_stat_config(ClientId, State) ->
-    case State#initial_state.config#config.stat of
-        disabled ->
-            handle_connect_success(ClientId, State);
-        enabled ->
-            BrokerId = broker_client_id(State#initial_state.config#config.id),
-            send_audience_event(
-                #{id => agent_id(ClientId)},
-                [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.enter">>} ],
-                BrokerId,
-                ClientId,
-                State#initial_state.time),
-            handle_connect_success(ClientId, State)
     end.
 
 -spec handle_connect_success(client_id(), initial_state()) -> ok | {error, error()}.
@@ -247,10 +230,47 @@ handle_connect_success(ClientId, State) ->
             created_at=State#initial_state.time},
     mqttgw_state:put(ClientId, Session),
 
+    handle_connect_success_stat_config(
+        ClientId,
+        broker_state(
+            State#initial_state.config,
+            Session,
+            State#initial_state.time)),
+
     error_logger:info_msg(
         "Agent = '~s' connected: mode = '~s'",
         [agent_id(ClientId), Mode]),
     ok.
+
+-spec handle_connect_success_stat_config(client_id(), state()) -> ok.
+handle_connect_success_stat_config(ClientId, State) ->
+    case State#state.config#config.stat of
+        disabled ->
+            ok;
+        enabled ->
+            #state{
+                time=Time,
+                session=#session{
+                    parent_id=ParentSessionId,
+                    id=SessionId,
+                    created_at=Ts},
+                config=#config{
+                    id=BMe}} = State,
+            BrokerId = broker_client_id(BMe),
+            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+
+            send_audience_event(
+                #{id => agent_id(ClientId)},
+                [ {<<"type">>, <<"event">>},
+                  {<<"label">>, <<"agent.enter">>},
+                  {<<"tracking_id">>, TrackingId},
+                  {<<"timestamp">>, integer_to_binary(Ts)} ],
+                BrokerId,
+                ClientId,
+                Time),
+            ok
+    end.
 
 -spec verify_connect_constraints(boolean(), connection_mode()) -> ok.
 verify_connect_constraints(CleanSession, Mode) ->
@@ -294,14 +314,27 @@ handle_disconnect_stat_config(ClientId, State) ->
         disabled ->
             handle_disconnect_success(ClientId);
         enabled ->
-            BrokerId = broker_client_id(State#state.config#config.id),
+            #state{
+                time=Time,
+                session=#session{
+                    parent_id=ParentSessionId,
+                    id=SessionId,
+                    created_at=Ts},
+                config=#config{
+                    id=BMe}} = State,
+            BrokerId = broker_client_id(BMe),
+            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+
             send_audience_event(
                 #{id => agent_id(ClientId)},
                 [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.leave">>} ],
+                  {<<"label">>, <<"agent.leave">>},
+                  {<<"tracking_id">>, TrackingId},
+                  {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 ClientId,
-                State#state.time),
+                Time),
             handle_disconnect_success(ClientId)
     end.
 
@@ -1180,6 +1213,7 @@ handle_broker_start_stat_config(State) ->
     case State#state.config#config.stat of
         enabled ->
             #state{
+                time=Time,
                 session=#session{
                     parent_id=ParentSessionId,
                     id=SessionId,
@@ -1187,18 +1221,18 @@ handle_broker_start_stat_config(State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            SessionId = session_id(SessionId, ParentSessionId),
-            TrackingId = tracking_id(make_uuid(), SessionId),
+            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
 
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.enter">>},
                   {<<"tracking_id">>, TrackingId},
-                  {<<"timestamp">>, Ts} ],
+                  {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 BrokerId,
-                State#state.time),
+                Time),
             handle_broker_start_success();
         _ ->
             handle_broker_start_success()
@@ -1231,6 +1265,7 @@ handle_broker_stop_stat_config(State) ->
     case State#state.config#config.stat of
         enabled ->
             #state{
+                time=Time,
                 session=#session{
                     parent_id=ParentSessionId,
                     id=SessionId,
@@ -1238,18 +1273,18 @@ handle_broker_stop_stat_config(State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            SessionId = session_id(SessionId, ParentSessionId),
-            TrackingId = tracking_id(make_uuid(), SessionId),
+            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
 
             send_audience_event(
                 #{id => agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
                   {<<"tracking_id">>, TrackingId},
-                  {<<"timestamp">>, Ts} ],
+                  {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 BrokerId,
-                State#state.time),
+                Time),
             handle_broker_stop_success();
         _ ->
             handle_broker_stop_success()
@@ -1287,7 +1322,7 @@ start() ->
             mode=Mode,
             version=Ver,
             created_at=Time},
-    mqttgw_state:put(BrokerId, Session),
+    mqttgw_state:put(broker_client_id(BrokerId), Session),
 
     handle_broker_start(broker_state(Config, Session, Time)),
     ok.
@@ -1437,12 +1472,12 @@ broker_initial_state(Config, Time) ->
 broker_state(Config, Session, Time) ->
     #state{config=Config, session=Session, time=Time}.
 
--spec tracking_id(binary(), binary()) -> binary().
-tracking_id(Label, SessionId) ->
+-spec format_tracking_id(binary(), binary()) -> binary().
+format_tracking_id(Label, SessionId) ->
     <<Label/binary, $., SessionId/binary>>.
 
--spec session_id(binary(), binary()) -> binary().
-session_id(SessionId, ParentSessionId) ->
+-spec format_session_id(binary(), binary()) -> binary().
+format_session_id(SessionId, ParentSessionId) ->
     <<SessionId/binary, $., ParentSessionId/binary>>.
 
 -spec make_uuid() -> binary().
