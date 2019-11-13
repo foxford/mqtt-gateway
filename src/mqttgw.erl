@@ -257,8 +257,8 @@ handle_connect_success_stat_config(ClientId, State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
-            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), SessionPairId),
 
             send_audience_event(
                 #{id => agent_id(ClientId)},
@@ -268,6 +268,7 @@ handle_connect_success_stat_config(ClientId, State) ->
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 ClientId,
+                SessionPairId,
                 Time),
             ok
     end.
@@ -303,8 +304,14 @@ handle_disconnect_authz_config(Conn, ClientId, State) ->
         disabled ->
             handle_disconnect_stat_config(ClientId, State);
         {enabled, _Config} ->
-            BrokerId = broker_client_id(State#state.config#config.id),
-            delete_client_dynsubs(Conn, BrokerId, State#state.time),
+            #state{
+                time=Time,
+                session=#session{parent_id=ParentSessionId, id=SessionId},
+                config=#config{id=BMe}} = State,
+            BrokerId = broker_client_id(BMe),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+
+            delete_client_dynsubs(Conn, BrokerId, SessionPairId, Time),
             handle_disconnect_stat_config(ClientId, State)
     end.
 
@@ -323,8 +330,8 @@ handle_disconnect_stat_config(ClientId, State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
-            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), SessionPairId),
 
             send_audience_event(
                 #{id => agent_id(ClientId)},
@@ -334,6 +341,7 @@ handle_disconnect_stat_config(ClientId, State) ->
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 ClientId,
+                SessionPairId,
                 Time),
             handle_disconnect_success(ClientId)
     end.
@@ -561,6 +569,10 @@ handle_publish_authz_broker_request(
 %     #client_id{
 %         account_label=AccountLabel,
 %         audience=Audience} = ClientId,
+%     #state{
+%         time=Time,
+%         session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+%     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
 %     %% Subscribe the agent to the app's topic and send a success response
 %     App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
@@ -568,10 +580,10 @@ handle_publish_authz_broker_request(
 %     create_dynsub(Subject, Data),
 
 %     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, State#state.time),
+%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, SessionPairId, Time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, State#state.time),
+%     send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, SessionPairId, Time),
 %     ok.
 
 % -spec handle_publish_authz_broker_dynsub_delete_request(
@@ -583,6 +595,10 @@ handle_publish_authz_broker_request(
 %     #client_id{
 %         account_label=AccountLabel,
 %         audience=Audience} = ClientId,
+%     #state{
+%         time=Time,
+%         session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+%     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
 %     %% Unsubscribe the agent from the app's topic and send a success response
 %     App = mqttgw_authn:format_account_id(#{label => AccountLabel, audience => Audience}),
@@ -590,10 +606,10 @@ handle_publish_authz_broker_request(
 %     delete_dynsub(Subject, Data),
 
 %     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, State#state.time),
+%     send_dynsub_response(App, CorrData, RespTopic, BrokerId, ClientId, SessionPairId, Time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, State#state.time),
+%     send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, SessionPairId, Time),
 %     ok.
 
 -spec handle_message_properties(message(), client_id(), client_id(), state())
@@ -605,6 +621,9 @@ handle_message_properties(Message, ClientId, BrokerId, State) ->
                 Message#message.properties,
                 ClientId,
                 BrokerId,
+                format_session_id(
+                    State#state.session#session.id,
+                    State#state.session#session.parent_id),
                 State#state.time),
             ClientId),
 
@@ -680,8 +699,10 @@ verify_response_topic([<<"agents">>, Me, <<"api">>, _, <<"in">>, _], Me) ->
 verify_response_topic(Topic, AgentId) ->
     error({bad_response_topic, Topic, AgentId}).
 
--spec update_message_properties(map(), client_id(), client_id(), non_neg_integer()) -> map().
-update_message_properties(Properties, ClientId, BrokerId, Time) ->
+-spec update_message_properties(
+    map(), client_id(), client_id(), binary(), non_neg_integer())
+    -> map().
+update_message_properties(Properties, ClientId, BrokerId, SessionPairId, Time) ->
     #client_id{
         agent_label=BrokerAgentLabel,
         account_label=BrokerAccountLabel,
@@ -767,7 +788,20 @@ update_message_properties(Properties, ClientId, BrokerId, Time) ->
                 UserProperties6
         end,
 
-    Properties#{p_user_property => maps:to_list(UserProperties7)}.
+    %% Tracking properties
+    UserProperties8 =
+        case maps:find(<<"session_tracking_label">>, UserProperties7) of
+            {ok, SessionTrackingLabel} ->
+                L0 = binary:split(SessionTrackingLabel, <<$\s>>, [global]),
+                L1 = gb_sets:to_list(gb_sets:add(SessionPairId, gb_sets:from_list(L0))),
+                UserProperties7#{
+                    <<"session_tracking_label">> => binary_join(L1, <<$\s>>)};
+            _ ->
+                UserProperties7#{
+                    <<"session_tracking_label">> => SessionPairId}
+        end,
+
+    Properties#{p_user_property => maps:to_list(UserProperties8)}.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -968,16 +1002,20 @@ handle_deliver_authz_broker_request_payload(
     -> message().
 handle_deliver_authz_broker_dynsub_create_request(
     Version, App, Object, Subject, CorrData, BrokerId, ClientId, State) ->
+    #state{
+        time=Time,
+        session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     %% Subscribe the agent to the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     create_dynsub(Subject, Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, State#state.time),
+    send_dynsub_event(<<"subscription.create">>, Subject, Data, BrokerId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
-    create_dynsub_response(CorrData, BrokerId, ClientId, State#state.time).
+    create_dynsub_response(CorrData, BrokerId, ClientId, SessionPairId, Time).
 
 -spec handle_deliver_authz_broker_dynsub_delete_request(
     binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
@@ -985,19 +1023,25 @@ handle_deliver_authz_broker_dynsub_create_request(
     -> message().
 handle_deliver_authz_broker_dynsub_delete_request(
     Version, App, Object, Subject, CorrData, BrokerId, ClientId, State) ->
+    #state{
+        time=Time,
+        session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     %% Unsubscribe the agent from the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     delete_dynsub(Subject, Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, State#state.time),
+    send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
-    create_dynsub_response(CorrData, BrokerId, ClientId, State#state.time).
+    create_dynsub_response(CorrData, BrokerId, ClientId, SessionPairId, Time).
 
--spec create_dynsub_response(binary(), client_id(), client_id(), non_neg_integer()) -> message().
-create_dynsub_response(CorrData, BrokerId, SenderId, Time) ->
+-spec create_dynsub_response(
+    binary(), client_id(), client_id(), binary(), non_neg_integer())
+    -> message().
+create_dynsub_response(CorrData, BrokerId, SenderId, SessionPairId, Time) ->
     #message{
         payload = jsx:encode(#{}),
         properties =
@@ -1009,6 +1053,7 @@ create_dynsub_response(CorrData, BrokerId, SenderId, Time) ->
                           {<<"status">>, <<"200">>} ]},
                     SenderId,
                     BrokerId,
+                    SessionPairId,
                     Time
                 ),
                 SenderId
@@ -1221,8 +1266,8 @@ handle_broker_start_stat_config(State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
-            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), SessionPairId),
 
             send_audience_event(
                 #{id => agent_id(BrokerId)},
@@ -1232,6 +1277,7 @@ handle_broker_start_stat_config(State) ->
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 BrokerId,
+                SessionPairId,
                 Time),
             handle_broker_start_success();
         _ ->
@@ -1253,8 +1299,14 @@ handle_broker_stop(State) ->
 handle_broker_stop_authz_config(State) ->
     case State#state.config#config.authz of
         {enabled, _Config} ->
-            BrokerId = broker_client_id(State#state.config#config.id),
-            erase_dynsubs(BrokerId, State#state.time),
+            #state{
+                time=Time,
+                session=#session{parent_id=ParentSessionId, id=SessionId},
+                config=#config{id=BMe}} = State,
+            BrokerId = broker_client_id(BMe),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+
+            erase_dynsubs(BrokerId, SessionPairId, Time),
             handle_broker_stop_stat_config(State);
         _ ->
             handle_broker_stop_stat_config(State)
@@ -1273,8 +1325,8 @@ handle_broker_stop_stat_config(State) ->
                 config=#config{
                     id=BMe}} = State,
             BrokerId = broker_client_id(BMe),
-            CombinedSessionId = format_session_id(SessionId, ParentSessionId),
-            TrackingId = format_tracking_id(make_uuid(), CombinedSessionId),
+            SessionPairId = format_session_id(SessionId, ParentSessionId),
+            TrackingId = format_tracking_id(make_uuid(), SessionPairId),
 
             send_audience_event(
                 #{id => agent_id(BrokerId)},
@@ -1284,6 +1336,7 @@ handle_broker_stop_stat_config(State) ->
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 BrokerId,
                 BrokerId,
+                SessionPairId,
                 Time),
             handle_broker_stop_success();
         _ ->
@@ -1663,8 +1716,10 @@ delete_dynsub(Subject, Data) ->
 
     ok.
 
--spec delete_client_dynsubs(mqttgw_dynsub:subject(), client_id(), non_neg_integer()) -> ok.
-delete_client_dynsubs(Subject, BrokerId, Time) ->
+-spec delete_client_dynsubs(
+    mqttgw_dynsub:subject(), client_id(), binary(), non_neg_integer())
+    -> ok.
+delete_client_dynsubs(Subject, BrokerId, SessionPairId, Time) ->
     %% TODO: remove the local state
     %% NOTE: In the case when a dynamic subscription was created for an offline client,
     %% even though it later connects with 'clean_session=false' flushing subscriptions
@@ -1681,7 +1736,7 @@ delete_client_dynsubs(Subject, BrokerId, Time) ->
     % DynSubL = mqttgw_dynsub:list(Subject),
 
     %% Send a multicast event to the application
-    [send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, Time)
+    [send_dynsub_event(<<"subscription.delete">>, Subject, Data, BrokerId, SessionPairId, Time)
      || Data <- DynSubL],
 
     %% Remove subscriptions
@@ -1689,18 +1744,19 @@ delete_client_dynsubs(Subject, BrokerId, Time) ->
 
     ok.
 
--spec erase_dynsubs(client_id(), non_neg_integer()) -> ok.
-erase_dynsubs(BrokerId, Time) ->
-    [delete_client_dynsubs(Subject, BrokerId, Time) || Subject <- mqttgw_broker:list_connections()],
+-spec erase_dynsubs(client_id(), binary(), non_neg_integer()) -> ok.
+erase_dynsubs(BrokerId, SessionPairId, Time) ->
+    [delete_client_dynsubs(Subject, BrokerId, SessionPairId, Time)
+     || Subject <- mqttgw_broker:list_connections()],
     ok.
 
 %% TODO: remove the local state
 %% TODO: uncomment the lines bellow
 
 % -spec send_dynsub_response(
-%     binary(), binary(), binary(), client_id(), client_id(), non_neg_integer())
+%     binary(), binary(), binary(), client_id(), client_id(), binary(), non_neg_integer())
 %     -> ok.
-% send_dynsub_response(App, CorrData, RespTopic, BrokerId, SenderId, Time) ->
+% send_dynsub_response(App, CorrData, RespTopic, BrokerId, SessionPairId, SenderId, Time) ->
 %     #client_id{mode=Mode} = SenderId,
 
 %     QoS = 1,
@@ -1718,6 +1774,7 @@ erase_dynsubs(BrokerId, Time) ->
 %                                   {<<"status">>, <<"200">>} ]},
 %                             SenderId,
 %                             BrokerId,
+%                             SessionPairId,
 %                             Time
 %                         ),
 %                         SenderId
@@ -1737,9 +1794,10 @@ erase_dynsubs(BrokerId, Time) ->
 %     end.
 
 -spec send_dynsub_event(
-    binary(), mqttgw_dynsub:subject(), mqttgw_dynsub:data(), client_id(), non_neg_integer())
+    binary(), mqttgw_dynsub:subject(), mqttgw_dynsub:data(),
+    client_id(), binary(), non_neg_integer())
     -> ok.
-send_dynsub_event(Label, Subject, Data, SenderId, Time) ->
+send_dynsub_event(Label, Subject, Data, SenderId, SessionPairId, Time) ->
     QoS = 1,
     #{app := App, object := Object} = Data,
     try mqttgw_broker:publish(
@@ -1757,6 +1815,7 @@ send_dynsub_event(Label, Subject, Data, SenderId, Time) ->
                                   {<<"label">>, Label} ]},
                             SenderId,
                             SenderId,
+                            SessionPairId,
                             Time
                         ),
                         SenderId
@@ -1774,8 +1833,10 @@ send_dynsub_event(Label, Subject, Data, SenderId, Time) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec send_audience_event(map(), list(), client_id(), client_id(), non_neg_integer()) -> ok.
-send_audience_event(Payload, UserProperties, SenderId, ClientId, Time) ->
+-spec send_audience_event(
+    map(), list(), client_id(), client_id(), binary(), non_neg_integer())
+    -> ok.
+send_audience_event(Payload, UserProperties, SenderId, ClientId, SessionPairId, Time) ->
     Topic = audience_event_topic(ClientId, SenderId),
     QoS = 1,
     try mqttgw_broker:publish(
@@ -1789,6 +1850,7 @@ send_audience_event(Payload, UserProperties, SenderId, ClientId, Time) ->
                             #{p_user_property => UserProperties},
                             SenderId,
                             SenderId,
+                            SessionPairId,
                             Time
                         ),
                         SenderId
@@ -1843,6 +1905,15 @@ authz_subscription_topic(Data) ->
 %       method => Method,
 %       correlation_data => CorrData,
 %       response_topic => RespTopic}.
+
+-spec binary_join([binary()], binary()) -> binary().
+binary_join([H], _) -> H;
+binary_join([H|T], Sep) ->
+    lists:foldl(
+        fun(Val, Acc) ->
+            <<Acc/binary, Sep/binary, Val/binary>>
+        end, H, T);
+binary_join([], _)  -> <<>>.
 
 %% =============================================================================
 %% Tests
@@ -2119,9 +2190,11 @@ prop_onpublish() ->
             ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
             ExpectedTimeL = [
                 {<<"local_initial_timediff">>, TimeDiffB}],
+            SessionTrackingL =
+                [ {<<"session_tracking_label">>, make_sample_tracking_label()} ],
             ExpectedUserL = [
                 {<<"type">>, <<"event">>}
-                | ExpectedAuthnUserL ++ ExpectedConnectionL ++ ExpectedBrokerL],
+                | ExpectedAuthnUserL ++ ExpectedConnectionL ++ ExpectedBrokerL ++ SessionTrackingL],
             ExpectedProperties = fun
                 (default) -> #{p_user_property => ExpectedUserL ++ ExpectedTimeL};
                 (_) -> #{p_user_property => ExpectedUserL}
@@ -2399,7 +2472,6 @@ message_properties_optional_test_() ->
             make_sample_session(Mode),
             Time1)
     end,
-
     AnyMode = [default, service, service_payload_only, observer, bridge],
     TrustedMode = [service, service_payload_only, observer, bridge],
     NonTrustedMode = AnyMode -- TrustedMode,
@@ -2655,6 +2727,9 @@ make_sample_broker_session() ->
         mode=service,
         version= <<"v1">>,
         created_at=0}.
+
+make_sample_tracking_label() ->
+    <<"00000000-0000-0000-0000-000000000000.00000000-0000-0000-0000-000000000001">>.
 
 make_sample_me(BMeAud, Trusted) ->
     BMe = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => BMeAud}},
