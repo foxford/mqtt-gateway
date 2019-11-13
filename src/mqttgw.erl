@@ -790,18 +790,24 @@ update_message_properties(Properties, ClientId, BrokerId, SessionPairId, Time) -
 
     %% Tracking properties
     UserProperties8 =
-        case maps:find(<<"session_tracking_label">>, UserProperties7) of
-            {ok, SessionTrackingLabel} ->
-                L0 = binary:split(SessionTrackingLabel, <<$\s>>, [global]),
-                L1 = gb_sets:to_list(gb_sets:add(SessionPairId, gb_sets:from_list(L0))),
-                UserProperties7#{
-                    <<"session_tracking_label">> => binary_join(L1, <<$\s>>)};
-            _ ->
-                UserProperties7#{
-                    <<"session_tracking_label">> => SessionPairId}
-        end,
+        update_session_tracking_label_property(
+            SessionPairId,
+            UserProperties7),
 
     Properties#{p_user_property => maps:to_list(UserProperties8)}.
+
+-spec update_session_tracking_label_property(binary(), map()) -> map().
+update_session_tracking_label_property(SessionPairId, UserProperties) ->
+    case maps:find(<<"session_tracking_label">>, UserProperties) of
+        {ok, SessionTrackingLabel} ->
+            L0 = binary:split(SessionTrackingLabel, <<$\s>>, [global]),
+            L1 = gb_sets:to_list(gb_sets:add(SessionPairId, gb_sets:from_list(L0))),
+            UserProperties#{
+                <<"session_tracking_label">> => binary_join(L1, <<$\s>>)};
+        _ ->
+            UserProperties#{
+                <<"session_tracking_label">> => SessionPairId}
+    end.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
 handle_mqtt3_envelope_properties(Message) ->
@@ -1116,8 +1122,14 @@ handle_deliver_mqtt3_changes(service_payload_only, Message, _State) ->
     {ok, [{payload, Payload}]};
 handle_deliver_mqtt3_changes(_Mode, Message, State) ->
     #message{properties=Properties} = Message,
+    #state{
+        time=Time,
+        session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
+
     ModifiedMessage = Message#message{
-        properties=update_deliver_message_properties(Properties, State#state.time)},
+        properties=update_deliver_message_properties(Properties, SessionPairId, Time)},
+
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
 -spec handle_deliver_mqtt5(
@@ -1153,13 +1165,19 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
     -> ok | {ok, map()}.
 handle_deliver_mqtt5_changes(_Mode, Message, State) ->
     #message{payload=Payload, properties=Properties} = Message,
+    #state{
+        time=Time,
+        session=#session{parent_id=ParentSessionId, id=SessionId}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
+
     Changes =
         #{payload => Payload,
-          properties => update_deliver_message_properties(Properties, State#state.time)},
+          properties => update_deliver_message_properties(Properties, SessionPairId, Time)},
+
     {ok, Changes}.
 
--spec update_deliver_message_properties(map(), non_neg_integer()) -> map().
-update_deliver_message_properties(Properties, Time) ->
+-spec update_deliver_message_properties(map(), binary(), non_neg_integer()) -> map().
+update_deliver_message_properties(Properties, SessionPairId, Time) ->
     UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Additional broker properties
@@ -1167,7 +1185,13 @@ update_deliver_message_properties(Properties, Time) ->
         UserProperties0#{
             <<"broker_timestamp">> => integer_to_binary(Time)},
 
-    Properties#{p_user_property => maps:to_list(UserProperties1)}.
+    %% Tracking properties
+    UserProperties2 =
+        update_session_tracking_label_property(
+            SessionPairId,
+            UserProperties1),
+
+    Properties#{p_user_property => maps:to_list(UserProperties2)}.
 
 %% =============================================================================
 %% API: Subscribe
@@ -2574,7 +2598,12 @@ prop_ondeliver() ->
                   <<"audience">> => Audience},
             ExpectedBrokerL =
                 #{<<"broker_timestamp">> => integer_to_binary(Time)},
-            ExpectedProperties = maps:merge(ExpectedAuthnUserL, ExpectedBrokerL),
+            ExpectedSessionTrackingL =
+                #{<<"session_tracking_label">> => make_sample_tracking_label()},
+            ExpectedProperties =
+                maps:merge(
+                    maps:merge(ExpectedAuthnUserL, ExpectedBrokerL),
+                    ExpectedSessionTrackingL),
             InputProperties = ExpectedAuthnUserL,
             InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
