@@ -797,7 +797,7 @@ update_message_properties(Properties, ClientId, BrokerId, UniqueId, SessionPairI
             maps:find(<<"local_initial_timediff">>, UserProperties6)} of
             %% NOTE: remove 'local_initial_timediff' if it was sent by an agent in 'default' mode
             {error, {ok, _}} when Mode =:= default ->
-                maps:take(<<"local_initial_timediff">>, UserProperties6);
+                remove_property(<<"local_initial_timediff">>, UserProperties6);
             {{LocalTs, Prop7}, error} ->
                 LocalTimeDiff = integer_to_binary(Time - binary_to_integer(LocalTs)),
                 Prop7#{<<"local_initial_timediff">> => LocalTimeDiff};
@@ -807,12 +807,18 @@ update_message_properties(Properties, ClientId, BrokerId, UniqueId, SessionPairI
 
     %% Tracking properties
     UserProperties8 =
+        case Mode of
+            %% NOTE: remove 'tracking_id' if it was sent by an agent in 'default' mode
+            default -> remove_property(<<"tracking_id">>, UserProperties7);
+            _ -> UserProperties7
+        end,
+    UserProperties9 =
         update_session_tracking_label_property(
             UniqueId,
             SessionPairId,
-            UserProperties7),
+            UserProperties8),
 
-    Properties#{p_user_property => maps:to_list(UserProperties8)}.
+    Properties#{p_user_property => maps:to_list(UserProperties9)}.
 
 -spec update_session_tracking_label_property(binary(), binary(), map()) -> map().
 update_session_tracking_label_property(UniqueId, SessionPairId, UserProperties) ->
@@ -827,6 +833,13 @@ update_session_tracking_label_property(UniqueId, SessionPairId, UserProperties) 
             UserProperties#{
                 <<"tracking_id">> => TrackingId,
                 <<"session_tracking_label">> => SessionPairId}
+    end.
+
+-spec remove_property(binary(), map()) -> map().
+remove_property(Name, UserProperties) ->
+    case maps:take(Name, UserProperties) of
+        {ok, M} -> M;
+        _ -> UserProperties
     end.
 
 -spec handle_mqtt3_envelope_properties(message()) -> message().
