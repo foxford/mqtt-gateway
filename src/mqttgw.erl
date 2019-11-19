@@ -257,8 +257,8 @@ handle_connect_success_stat_config(ClientId, State) ->
                     parent_id=ParentSessionId,
                     created_at=Ts},
                 config=#config{
-                    id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                    id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             send_audience_event(
@@ -308,8 +308,8 @@ handle_disconnect_authz_config(Conn, ClientId, State) ->
                 time=Time,
                 unique_id=UniqueId,
                 session=#session{id=SessionId, parent_id=ParentSessionId},
-                config=#config{id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                config=#config{id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             delete_client_dynsubs(Conn, BrokerId, UniqueId, SessionPairId, Time),
@@ -330,8 +330,8 @@ handle_disconnect_stat_config(ClientId, State) ->
                     parent_id=ParentSessionId,
                     created_at=Ts},
                 config=#config{
-                    id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                    id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             send_audience_event(
@@ -1329,8 +1329,8 @@ handle_broker_start_stat_config(State) ->
                     parent_id=ParentSessionId,
                     created_at=Ts},
                 config=#config{
-                    id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                    id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             send_audience_event(
@@ -1367,8 +1367,8 @@ handle_broker_stop_authz_config(State) ->
                 time=Time,
                 unique_id=UniqueId,
                 session=#session{id=SessionId, parent_id=ParentSessionId},
-                config=#config{id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                config=#config{id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             erase_dynsubs(BrokerId, UniqueId, SessionPairId, Time),
@@ -1389,8 +1389,8 @@ handle_broker_stop_stat_config(State) ->
                     parent_id=ParentSessionId,
                     created_at=Ts},
                 config=#config{
-                    id=BMe}} = State,
-            BrokerId = broker_client_id(BMe),
+                    id=IdM}} = State,
+            BrokerId = broker_client_id(IdM),
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             send_audience_event(
@@ -2055,15 +2055,15 @@ prop_onconnect() ->
             CleanSession = minimal_constraint(clean_session),
 
             Time = 0,
-            BMe = make_sample_me(),
-            BrokerId = broker_client_id(BMe),
+            IdM = make_sample_broker_idm(),
+            BrokerId = broker_client_id(IdM),
             Conn = element(2, SubscriberId),
             Config = make_sample_config(disabled, disabled, disabled),
             State = broker_initial_state(Config, Time),
 
             %% NOTE: we use it to read the broker config and store agent's initial state
             mqttgw_state:new(),
-            mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BMe)),
+            mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, IdM)),
             mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
             ok = handle_connect(Conn, Password, CleanSession, State),
@@ -2092,7 +2092,7 @@ authz_onconnect_test_() ->
 
     AgentLabel = <<"foo">>,
     AccountLabel = <<"bar">>,
-    SvcAud = BMeAud = <<"svc.example.org">>,
+    SvcAud = IdMAud = <<"svc.example.org">>,
     SvcAccountId = #{label => AccountLabel, audience => SvcAud},
     UsrAud = <<"usr.example.net">>,
 
@@ -2102,9 +2102,9 @@ authz_onconnect_test_() ->
     #{password := UsrPassword,
       config := UsrAuthnConfig} =
         make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
-    #{me := BMe,
-      config := AuthzConfig} = make_sample_me(BMeAud, [SvcAccountId]),
-    BrokerId = broker_client_id(BMe),
+    #{me := IdM,
+      config := AuthzConfig} = make_sample_broker_config(IdMAud, [SvcAccountId]),
+    BrokerId = broker_client_id(IdM),
 
     Test = [
         { "usr: allowed",
@@ -2120,7 +2120,7 @@ authz_onconnect_test_() ->
 
     %% NOTE: we use it to read the broker config and store agent's initial state
     mqttgw_state:new(),
-    mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BMe)),
+    mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, IdM)),
     mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
     %% 1 - authn: enabled, authz: disabled
@@ -2131,7 +2131,7 @@ authz_onconnect_test_() ->
                 {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
                 disabled,
                 disabled,
-                BMe),
+                IdM),
             Time)
         end,
     [begin
@@ -2153,7 +2153,7 @@ authz_onconnect_test_() ->
                 {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
                 {enabled, AuthzConfig},
                 disabled,
-                BMe),
+                IdM),
             Time)
         end,
     [begin
@@ -2173,7 +2173,7 @@ authz_onconnect_test_() ->
                 disabled,
                 {enabled, AuthzConfig},
                 disabled,
-                BMe),
+                IdM),
             Time)
         end,
     [begin
@@ -2222,7 +2222,7 @@ prop_onpublish() ->
         begin
             QoS = minimal_constraint(qos),
             IsRetain = minimal_constraint(retain),
-            BMe = make_sample_me(),
+            IdM = make_sample_broker_idm(),
             Time = 0,
             TimeB = TimeDiffB = integer_to_binary(Time),
 
@@ -2232,13 +2232,13 @@ prop_onpublish() ->
                 account_label=AccountLabel,
                 audience=Audience} = ClientId = parse_client_id(element(2, SubscriberId)),
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BMe),
+                make_sample_config(disabled, disabled, disabled, IdM),
                 make_sample_session(Mode),
                 Time),
             ExpectedBrokerL =
-                [ {<<"broker_agent_label">>, mqttgw_id:label(BMe)},
-                  {<<"broker_account_label">>, mqttgw_id:account_label(BMe)},
-                  {<<"broker_audience">>, mqttgw_id:audience(BMe)},
+                [ {<<"broker_agent_label">>, mqttgw_id:label(IdM)},
+                  {<<"broker_account_label">>, mqttgw_id:account_label(IdM)},
+                  {<<"broker_audience">>, mqttgw_id:audience(IdM)},
                   {<<"broker_processing_timestamp">>, TimeB},
                   {<<"broker_initial_processing_timestamp">>, TimeB} ],
             ExpectedConnectionL =
@@ -2318,10 +2318,10 @@ bridge_missing_properties_onpublish_test_() ->
     IsRetain = minimal_constraint(retain),
     #client_id{mode=Mode} = ClientId =
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>, bridge),
-    BMe = make_sample_me(),
+    IdM = make_sample_broker_idm(),
     Time = 0,
     State = make_sample_broker_state(
-        make_sample_config(disabled, disabled, disabled, BMe),
+        make_sample_config(disabled, disabled, disabled, IdM),
         make_sample_session(Mode),
         Time),
 
@@ -2341,10 +2341,10 @@ bridge_missing_properties_onpublish_test_() ->
 
 authz_onpublish_test_() ->
     Time = 0,
-    BMe = maps:get(me, make_sample_me(<<"aud">>, [])),
+    IdM = make_sample_broker_idm(<<"aud">>),
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, {enabled, ignore}, disabled, BMe),
+            make_sample_config(disabled, {enabled, ignore}, disabled, IdM),
             make_sample_session(Mode),
             Time)
     end,
@@ -2425,14 +2425,14 @@ message_publish_constraints_test_() ->
 
 message_properties_required_test_() ->
     Time = 0,
-    BMe = make_sample_me(),
-    BrokerId = broker_client_id(BMe),
+    IdM = make_sample_broker_idm(),
+    BrokerId = broker_client_id(IdM),
     ClientId = fun(Mode) ->
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
     end,
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, disabled, disabled, BMe),
+            make_sample_config(disabled, disabled, disabled, IdM),
             make_sample_session(Mode),
             Time)
     end,
@@ -2519,14 +2519,14 @@ message_properties_optional_test_() ->
     Time1B = integer_to_binary(Time1),
     TimeDiff = Time1 - Time0,
     TimeDiffB = integer_to_binary(TimeDiff),
-    BMe = make_sample_me(),
-    BrokerId = broker_client_id(BMe),
+    IdM = make_sample_broker_idm(),
+    BrokerId = broker_client_id(IdM),
     ClientId = fun(Mode) ->
         make_sample_client_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>, Mode)
     end,
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, disabled, disabled, BMe),
+            make_sample_config(disabled, disabled, disabled, IdM),
             make_sample_session(Mode),
             Time1)
     end,
@@ -2619,7 +2619,7 @@ prop_ondeliver() ->
         {binary_utf8_t(), subscriber_id_t(),
          publish_topic_t(), binary_utf8_t()},
         begin
-            BMe = make_sample_me(),
+            IdM = make_sample_broker_idm(),
             Time = 0,
             #client_id{
                 mode=Mode,
@@ -2643,7 +2643,7 @@ prop_ondeliver() ->
             InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BMe),
+                make_sample_config(disabled, disabled, disabled, IdM),
                 make_sample_session(Mode),
                 Time),
 
@@ -2672,10 +2672,10 @@ prop_onsubscribe() ->
         {binary_utf8_t(), subscriber_id_t(), list({subscribe_topic_t(), qos_t()})},
         begin
             Time = 0,
-            BMe = make_sample_me(),
+            IdM = make_sample_broker_idm(),
             #client_id{mode=Mode} = ClientId = parse_client_id(element(2, SubscriberId)),
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BMe),
+                make_sample_config(disabled, disabled, disabled, IdM),
                 make_sample_session(Mode),
                 Time),
 
@@ -2684,7 +2684,7 @@ prop_onsubscribe() ->
 
 authz_onsubscribe_test_() ->
     Time = 0,
-    BMe = make_sample_me(),
+    IdM = make_sample_broker_idm(),
 
     %% Broadcast:
     %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
@@ -2706,7 +2706,7 @@ authz_onsubscribe_test_() ->
     end,
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, {enabled, ignore}, disabled, BMe),
+            make_sample_config(disabled, {enabled, ignore}, disabled, IdM),
             make_sample_session(Mode),
             Time)
     end,
@@ -2757,7 +2757,7 @@ make_sample_password(AccountLabel, Audience, Issuer) ->
       config => Config}.
 
 make_sample_config(Authn, Authz, Stat) ->
-    make_sample_config(Authn, Authz, Stat, make_sample_me()).
+    make_sample_config(Authn, Authz, Stat, make_sample_broker_idm()).
 
 make_sample_config(Authn, Authz, Stat, Me) ->
     #config{
@@ -2800,21 +2800,24 @@ make_sample_broker_state(Config, Session, Time) ->
         unique_id= <<"00000000-0000-0000-0000-000000000100">>,
         time=Time}.
 
-make_sample_me(BMeAud, Trusted) ->
-    BMe = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => BMeAud}},
+make_sample_broker_config(IdMAud, Trusted) ->
+    IdM = #{label => <<"alpha">>, account_id => #{label => <<"mqtt-gateway">>, audience => IdMAud}},
     Config =
-        #{BMeAud =>
+        #{IdMAud =>
           #{type => trusted,
             trusted => gb_sets:from_list(Trusted)}},
 
-    #{me => BMe,
+    #{me => IdM,
       config => Config}.
 
-make_sample_me() ->
+make_sample_broker_idm(Aud) ->
     #{label => <<"alpha">>,
       account_id =>
         #{label => <<"mqtt-gateway">>,
-          audience => <<"example.org">>}}.
+          audience => Aud}}.
+
+make_sample_broker_idm() ->
+    make_sample_broker_idm(<<"example.org">>).
 
 make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode) ->
     #client_id{
