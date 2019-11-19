@@ -45,6 +45,7 @@
 
 %% Definitions
 -define(APP, ?MODULE).
+-define(VER, <<"v1">>).
 
 %% Types
 -type qos() :: 0..2.
@@ -52,7 +53,7 @@
 -type subscription() :: {topic(), qos()}.
 -type connection() :: binary().
 
--type connection_mode() :: default | service_payload_only | service | observer | bridge.
+-type connection_mode() :: default | service | observer | bridge.
 
 -record(client_id, {
     mode          :: connection_mode(),
@@ -221,13 +222,12 @@ handle_connect_success(ClientId, State) ->
     #session{id=ParentSessionId} = mqttgw_state:get(BrokerId),
 
     %% Create an agent session
-    Ver = <<"v1">>,
     Session =
         #session{
             id=make_uuid(),
             parent_id=ParentSessionId,
             mode=Mode,
-            version=Ver,
+            version=?VER,
             created_at=State#initial_state.time},
     mqttgw_state:put(ClientId, Session),
 
@@ -282,8 +282,7 @@ verify_connect_constraints(CleanSession, Mode) ->
 -spec verify_connect_clean_session_constraint(boolean(), connection_mode()) -> ok.
 %% Any for trusted modes
 verify_connect_clean_session_constraint(_IsRetain, Mode)
-    when (Mode =:= service) or (Mode =:= service_payload_only)
-      or (Mode =:= bridge) or (Mode =:= observer)
+    when (Mode =:= service) or (Mode =:= bridge) or (Mode =:= observer)
     -> ok;
 %% Only 'false' for anyone else
 verify_connect_clean_session_constraint(true, _Mode) ->
@@ -387,7 +386,7 @@ handle_publish_mqtt3(Topic, InputPayload, ClientId, State) ->
 
     BrokerId = broker_client_id(State#state.config#config.id),
     try handle_message_properties(
-        handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(Mode, InputPayload))),
+        handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))),
         ClientId,
         BrokerId,
         State) of
@@ -755,11 +754,10 @@ update_message_properties(Properties, ClientId, BrokerId, UniqueId, SessionPairI
         end,
 
     %% Additional connection properties
-    {VersionStr, ModeStr} = connection_versionmode(Mode),
     UserProperties3 =
         UserProperties2#{
-            <<"connection_version">> => VersionStr,
-            <<"connection_mode">> => ModeStr},
+            <<"connection_version">> => ?VER,
+            <<"connection_mode">> => format_connection_mode(Mode)},
 
     %% Additional broker properties
     UserProperties4 =
@@ -918,8 +916,7 @@ verify_publish_retain_constraint(IsRetain, _Mode) ->
 %% Broadcast:
 %% -> event(app-to-any): apps/ACCOUNT_ID(ME)/api/v1/BROADCAST_URI
 verify_publish_topic([<<"apps">>, Me, <<"api">>, _ | _], Me, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service)
-      or (Mode =:= observer) or (Mode =:= bridge)
+    when (Mode =:= service) or (Mode =:= observer) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% -> request(one-to-app): agents/AGENT_ID(ME)/api/v1/out/ACCOUNT_ID
@@ -930,8 +927,7 @@ verify_publish_topic([<<"agents">>, Me, <<"api">>, _, <<"out">>, _], _AccountId,
 %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
 verify_publish_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Me], Me, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service)
-      or (Mode =:= observer) or (Mode =:= bridge)
+    when (Mode =:= service) or (Mode =:= observer) or (Mode =:= bridge)
     -> ok;
 %% Forbidding publishing to any other topics
 verify_publish_topic(Topic, _AccountId, AgentId, Mode)
@@ -1144,11 +1140,11 @@ handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
     try handle_deliver_authz_config(
             Topic,
             handle_mqtt3_envelope_properties(
-                validate_envelope(parse_envelope(default, InputPayload))),
+                validate_envelope(parse_envelope(InputPayload))),
             RecvId,
             State) of
         InputMessage ->
-            handle_deliver_mqtt3_changes(Mode, InputMessage, State)
+            handle_deliver_mqtt3_changes(InputMessage, State)
     catch
         T:R ->
             error_logger:error_msg(
@@ -1159,12 +1155,8 @@ handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec handle_deliver_mqtt3_changes(connection_mode(), message(), state())
-    -> ok | {ok, list()}.
-handle_deliver_mqtt3_changes(service_payload_only, Message, _State) ->
-    #message{payload = Payload} = Message,
-    {ok, [{payload, Payload}]};
-handle_deliver_mqtt3_changes(_Mode, Message, State) ->
+-spec handle_deliver_mqtt3_changes(message(), state()) -> ok | {ok, list()}.
+handle_deliver_mqtt3_changes(Message, State) ->
     #message{properties=Properties} = Message,
     #state{
         time=Time,
@@ -1191,7 +1183,7 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
     try handle_deliver_authz_config(
             Topic,
             handle_mqtt3_envelope_properties(
-                validate_envelope(parse_envelope(default, InputPayload))),
+                validate_envelope(parse_envelope(InputPayload))),
             RecvId,
             State) of
         InputMessage ->
@@ -1299,12 +1291,12 @@ verify_subscribe_topic(_Topic, _AccountId, _AgentId, observer)
 %% Broadcast:
 %% <- event(any-from-app): apps/ACCOUNT_ID/api/v1/BROADCAST_URI
 verify_subscribe_topic([<<"apps">>, _, <<"api">>, _ | _], _AccountId, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Multicast:
 %% <- request(app-from-any): agents/+/api/v1/out/ACCOUNT_ID(ME)
 verify_subscribe_topic([<<"agents">>, _, <<"api">>, _, <<"out">>, Me], Me, _AgentId, Mode)
-    when (Mode =:= service_payload_only) or (Mode =:= service) or (Mode =:= bridge)
+    when (Mode =:= service) or (Mode =:= bridge)
     -> ok;
 %% Unicast:
 %% <- request(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
@@ -1438,7 +1430,6 @@ start() ->
     mqttgw_state:put(config, Config),
 
     %% Create the broker session
-    Ver = <<"v1">>,
     Mode = service,
     Time = os:system_time(millisecond),
     Session =
@@ -1446,7 +1437,7 @@ start() ->
             id=make_uuid(),
             parent_id=make_uuid(),
             mode=Mode,
-            version=Ver,
+            version=?VER,
             created_at=Time},
     mqttgw_state:put(broker_client_id(BrokerId), Session),
 
@@ -1623,26 +1614,22 @@ validate_client_id(Val) ->
 
     Val.
 
--spec connection_versionmode(connection_mode()) -> {binary(), binary()}.
-connection_versionmode(default)              -> {<<"v1">>, <<"agents">>};
-connection_versionmode(service_payload_only) -> {<<"v1.payload-only">>, <<"service-agents">>};
-connection_versionmode(service)              -> {<<"v1">>, <<"service-agents">>};
-connection_versionmode(observer)             -> {<<"v1">>, <<"observer-agents">>};
-connection_versionmode(bridge)               -> {<<"v1">>, <<"bridge-agents">>}.
+-spec format_connection_mode(connection_mode()) -> binary().
+format_connection_mode(default)  -> <<"agents">>;
+format_connection_mode(service)  -> <<"service-agents">>;
+format_connection_mode(observer) -> <<"observer-agents">>;
+format_connection_mode(bridge)   -> <<"bridge-agents">>.
 
 -spec parse_connection_nmode({binary(), binary()}) -> connection_mode().
-parse_connection_nmode({<<"v1">>, <<"agents">>}) -> default;
-parse_connection_nmode({<<"v1.payload-only">>, <<"service-agents">>}) -> service_payload_only;
-parse_connection_nmode({<<"v1">>, <<"service-agents">>}) -> service;
-parse_connection_nmode({<<"v1">>, <<"observer-agents">>}) -> observer;
-parse_connection_nmode({<<"v1">>, <<"bridge-agents">>}) -> bridge;
+parse_connection_nmode({?VER, <<"agents">>}) -> default;
+parse_connection_nmode({?VER, <<"service-agents">>}) -> service;
+parse_connection_nmode({?VER, <<"observer-agents">>}) -> observer;
+parse_connection_nmode({?VER, <<"bridge-agents">>}) -> bridge;
 parse_connection_nmode(VerMode) -> error({bad_versionmode, VerMode}).
 
 -spec parse_client_id(binary()) -> client_id().
 parse_client_id(<<"v1/agents/", R/bits>>) ->
     parse_v1_agent_label(R, default, <<>>);
-parse_client_id(<<"v1.payload-only/service-agents/", R/bits>>) ->
-    parse_v1_agent_label(R, service_payload_only, <<>>);
 parse_client_id(<<"v1/service-agents/", R/bits>>) ->
     parse_v1_agent_label(R, service, <<>>);
 parse_client_id(<<"v1/observer-agents/", R/bits>>) ->
@@ -1726,16 +1713,12 @@ validate_envelope(Val) ->
     true = is_map(Properties),
     Val.
 
--spec parse_envelope(connection_mode(), binary()) -> message().
-parse_envelope(Mode, Message)
-    when (Mode =:= default) or (Mode =:= service)
-      or (Mode =:= observer) or (Mode =:= bridge) ->
+-spec parse_envelope(binary()) -> message().
+parse_envelope(Message) ->
     Envelope = jsx:decode(Message, [return_maps]),
     Payload = maps:get(<<"payload">>, Envelope),
     Properties = maps:get(<<"properties">>, Envelope, #{}),
-    #message{payload=Payload, properties=Properties};
-parse_envelope(service_payload_only, Message) ->
-    #message{payload=Message}.
+    #message{payload=Payload, properties=Properties}.
 
 -spec envelope(message()) -> binary().
 envelope(Message) ->
@@ -1951,12 +1934,12 @@ send_audience_event(Payload, UserProperties, SenderId, ClientId, UniqueId, Sessi
 -spec audience_event_topic(client_id(), client_id()) -> topic().
 audience_event_topic(ClientId, BrokerId) ->
     [<<"apps">>, account_id(BrokerId),
-     <<"api">>, <<"v1">>, <<"audiences">>, ClientId#client_id.audience, <<"events">>].
+     <<"api">>, ?VER, <<"audiences">>, ClientId#client_id.audience, <<"events">>].
 
 -spec dynsub_event_topic(binary(), client_id()) -> topic().
 dynsub_event_topic(App, BrokerId) ->
     [<<"agents">>, agent_id(BrokerId),
-     <<"api">>, <<"v1">>, <<"out">>, App].
+     <<"api">>, ?VER, <<"out">>, App].
 
 -spec authz_subscription_topic(mqttgw_dynsub:data()) -> topic().
 authz_subscription_topic(Data) ->
@@ -2006,11 +1989,10 @@ version_mode_t() ->
         Index,
         choose(1, 4),
         lists:nth(Index,
-            [{<<"v1">>, <<"agents">>},
-             {<<"v1">>, <<"bridge-agents">>},
-             {<<"v1">>, <<"observer-agents">>},
-             {<<"v1">>, <<"service-agents">>},
-             {<<"v1.payload-only">>, <<"service-agents">>}])).
+            [{?VER, <<"agents">>},
+             {?VER, <<"bridge-agents">>},
+             {?VER, <<"observer-agents">>},
+             {?VER, <<"service-agents">>}])).
 
 client_id_t() ->
     ?LET(
@@ -2129,10 +2111,10 @@ authz_onconnect_test_() ->
           [default], UsrAud, UsrPassword,
           ok },
         { "usr: forbidden",
-          [service_payload_only, service, observer, bridge], UsrAud, UsrPassword,
+          [service, observer, bridge], UsrAud, UsrPassword,
           {error, #{reason_code => not_authorized}} },
         { "svc: allowed",
-          [default, service_payload_only, service, observer, bridge], SvcAud, SvcPassword,
+          [default, service, observer, bridge], SvcAud, SvcPassword,
           ok }
     ],
 
@@ -2156,7 +2138,7 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
+                    AgentLabel, AccountLabel, Aud, Mode, ?VER),
             Result = handle_connect(ClientId, Password, CleanSession, State1(Mode)),
             {Desc, ?_assertEqual(ok, Result)}
         end || Mode <- Modes]
@@ -2178,7 +2160,7 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
+                    AgentLabel, AccountLabel, Aud, Mode, ?VER),
             Result = handle_connect(ClientId, Password, CleanSession, State2(Mode)),
             {Desc, ?_assertEqual(Expect, Result)}
         end || Mode <- Modes]
@@ -2198,15 +2180,15 @@ authz_onconnect_test_() ->
         [begin
             ClientId =
                 make_sample_connection_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, <<"v1">>),
+                    AgentLabel, AccountLabel, Aud, Mode, ?VER),
             Result = handle_connect(ClientId, Password, CleanSession, State3(Mode)),
             {Desc, ?_assertEqual(Expect, Result)}
         end || Mode <- Modes]
     end || {Desc, Modes, Aud, Password, Expect} <- Test].
 
 message_connect_constraints_test_() ->
-    AnyMode = [default, service, service_payload_only, observer, bridge],
-    TrustedMode = [service, service_payload_only, observer, bridge],
+    AnyMode = [default, service, observer, bridge],
+    TrustedMode = [service, observer, bridge],
     NonTrustedMode = AnyMode -- TrustedMode,
     AnyCleanSession = [false, true],
     MinCleanSession = [true],
@@ -2249,7 +2231,6 @@ prop_onpublish() ->
                 agent_label=AgentLabel,
                 account_label=AccountLabel,
                 audience=Audience} = ClientId = parse_client_id(element(2, SubscriberId)),
-            {VersionStr, ModeStr} = connection_versionmode(Mode),
             State = make_sample_broker_state(
                 make_sample_config(disabled, disabled, disabled, BMe),
                 make_sample_session(Mode),
@@ -2261,8 +2242,8 @@ prop_onpublish() ->
                   {<<"broker_processing_timestamp">>, TimeB},
                   {<<"broker_initial_processing_timestamp">>, TimeB} ],
             ExpectedConnectionL =
-                [ {<<"connection_version">>, VersionStr},
-                  {<<"connection_mode">>, ModeStr} ],
+                [ {<<"connection_version">>, ?VER},
+                  {<<"connection_mode">>, format_connection_mode(Mode)} ],
             ExpectedAuthnUserL =
                 [ {<<"agent_label">>, AgentLabel},
                   {<<"account_label">>, AccountLabel},
@@ -2288,9 +2269,7 @@ prop_onpublish() ->
                         M5 when (M5 =:= default) or (M5 =:= service) or (M5 =:= observer) ->
                             {Payload, add_local_timestamp(Mode, Time, #{})};
                         bridge ->
-                            {Payload, ExpectedAuthnProperties};
-                        service_payload_only ->
-                            {Payload, #{}}
+                            {Payload, ExpectedAuthnProperties}
                     end,
 
                 {ok, Modifiers} =
@@ -2319,9 +2298,7 @@ prop_onpublish() ->
                         bridge ->
                             envelope(#message{
                                 payload = Payload,
-                                properties=#{p_user_property => ExpectedUserL}});
-                        service_payload_only ->
-                            Payload
+                                properties=#{p_user_property => ExpectedUserL}})
                     end,
                 ExpectedMessage3 =
                     envelope(#message{payload = Payload, properties = ExpectedProperties(Mode)}),
@@ -2381,22 +2358,22 @@ authz_onpublish_test_() ->
     %% -> request(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
     %% -> response(one-to-one): agents/AGENT_ID/api/v1/in/ACCOUNT_ID(ME)
     Broadcast = fun(ClientId) ->
-        [<<"apps">>, account_id(ClientId), <<"api">>, <<"v1">>, <<>>]
+        [<<"apps">>, account_id(ClientId), <<"api">>, ?VER, <<>>]
     end,
     Multicast = fun(ClientId) ->
-        [<<"agents">>, agent_id(ClientId), <<"api">>, <<"v1">>, <<"out">>, <<>>]
+        [<<"agents">>, agent_id(ClientId), <<"api">>, ?VER, <<"out">>, <<>>]
     end,
     Unicast = fun(ClientId) ->
-        [<<"agents">>, <<>>, <<"api">>, <<"v1">>, <<"in">>, account_id(ClientId)]
+        [<<"agents">>, <<>>, <<"api">>, ?VER, <<"in">>, account_id(ClientId)]
     end,
 
     Test = [
         {"usr: broadcast", Broadcast, [default], error},
         {"usr: multicast", Multicast, [default], ok},
         {"usr: unicast", Unicast, [default], error},
-        {"svc: broadcast", Broadcast, [service_payload_only, service, observer, bridge], ok},
-        {"svc: multicast", Multicast, [service_payload_only, service, observer, bridge], ok},
-        {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
+        {"svc: broadcast", Broadcast, [service, observer, bridge], ok},
+        {"svc: multicast", Multicast, [service, observer, bridge], ok},
+        {"svc: unicast", Unicast, [service, observer, bridge], ok}
     ],
 
     [begin
@@ -2413,7 +2390,7 @@ authz_onpublish_test_() ->
     end || {Desc, TopicFn, Modes, Expect} <- Test].
 
 message_publish_constraints_test_() ->
-    AnyMode = [default, service, service_payload_only, observer, bridge],
+    AnyMode = [default, service, observer, bridge],
     ServiceMode = [service],
     NonServiceMode = AnyMode -- ServiceMode,
     AnyQoS = [0, 1, 2],
@@ -2467,7 +2444,7 @@ message_properties_required_test_() ->
         <<"agents/another.bar.aud.example.org/api/v1/in/baz.aud.example.org">>
     end,
 
-    AnyMode = [default, service, service_payload_only, observer, bridge],
+    AnyMode = [default, service, observer, bridge],
     ServiceMode = [service],
     NonServiceMode = AnyMode -- ServiceMode,
 
@@ -2553,8 +2530,8 @@ message_properties_optional_test_() ->
             make_sample_session(Mode),
             Time1)
     end,
-    AnyMode = [default, service, service_payload_only, observer, bridge],
-    TrustedMode = [service, service_payload_only, observer, bridge],
+    AnyMode = [default, service, observer, bridge],
+    TrustedMode = [service, observer, bridge],
     NonTrustedMode = AnyMode -- TrustedMode,
 
     Test = [
@@ -2680,14 +2657,7 @@ prop_ondeliver() ->
             %% MQTT 3
             begin
                 ExpectedPayload3 =
-                    case Mode of
-                        M when (M =:= default) or (M =:= bridge)
-                            or (M =:= observer) or (M =:= service) ->
-                            jsx:encode(#{payload => Payload, properties => ExpectedProperties});
-                        service_payload_only ->
-                            Payload
-                    end,
-
+                    jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
                 {ok, Modifiers3} =
                     handle_deliver_mqtt3(Topic, InputPayload, ClientId, State),
                 {_, ExpectedPayload3} = lists:keyfind(payload, 1, Modifiers3)
@@ -2726,13 +2696,13 @@ authz_onsubscribe_test_() ->
     %% <- response(one-from-one): agents/AGENT_ID(ME)/api/v1/in/ACCOUNT_ID
     %% <- response(one-from-any): agents/AGENT_ID(ME)/api/v1/in/+
     Broadcast = fun(_ClientId) ->
-        [<<"apps">>, <<>>, <<"api">>, <<"v1">>, <<>>]
+        [<<"apps">>, <<>>, <<"api">>, ?VER, <<>>]
     end,
     Multicast = fun(ClientId) ->
-        [<<"agents">>, <<$+>>, <<"api">>, <<"v1">>, <<"out">>, account_id(ClientId)]
+        [<<"agents">>, <<$+>>, <<"api">>, ?VER, <<"out">>, account_id(ClientId)]
     end,
     Unicast = fun(ClientId) ->
-        [<<"agents">>, agent_id(ClientId), <<"api">>, <<"v1">>, <<"in">>, <<$+>>]
+        [<<"agents">>, agent_id(ClientId), <<"api">>, ?VER, <<"in">>, <<$+>>]
     end,
     State = fun(Mode) ->
         make_sample_broker_state(
@@ -2745,9 +2715,9 @@ authz_onsubscribe_test_() ->
         {"usr: broadcast", Broadcast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: multicast", Multicast, [default], {error, #{reason_code => not_authorized}}},
         {"usr: unicast", Unicast, [default], ok},
-        {"svc: broadcast", Broadcast, [service_payload_only, service, observer, bridge], ok},
-        {"svc: multicast", Multicast, [service_payload_only, service, observer, bridge], ok},
-        {"svc: unicast", Unicast, [service_payload_only, service, observer, bridge], ok}
+        {"svc: broadcast", Broadcast, [service, observer, bridge], ok},
+        {"svc: multicast", Multicast, [service, observer, bridge], ok},
+        {"svc: unicast", Unicast, [service, observer, bridge], ok}
     ],
 
     [begin
@@ -2804,7 +2774,7 @@ make_sample_session(Mode) ->
         id= <<"00000000-0000-0000-0000-000000000010">>,
         parent_id= <<"00000000-0000-0000-0000-000000000000">>,
         mode=Mode,
-        version= <<"v1">>,
+        version= ?VER,
         created_at=0}.
 
 make_sample_broker_session() ->
@@ -2812,7 +2782,7 @@ make_sample_broker_session() ->
         id= <<"00000000-0000-0000-0000-000000000000">>,
         parent_id= <<"00000000-0000-0000-0000-000000000000">>,
         mode=service,
-        version= <<"v1">>,
+        version= ?VER,
         created_at=0}.
 
 make_sample_tracking_id() ->
@@ -2858,7 +2828,6 @@ make_sample_connection_client_id(AgentLabel, AccountLabel, Audience, Mode, Versi
     ModeLabel =
         case Mode of
             default -> <<Version/binary, "/agents">>;
-            service_payload_only -> <<Version/binary, ".payload-only/service-agents">>;
             service -> <<Version/binary, "/service-agents">>;
             observer -> <<Version/binary, "/observer-agents">>;
             bridge -> <<Version/binary, "/bridge-agents">>
@@ -2872,8 +2841,7 @@ make_sample_message_bridgecompat(Mode, Time) ->
 make_sample_message_bridgecompat(Mode, Time, Payload, Properties) ->
     case Mode of
         Mode when
-            (Mode =:= default) or (Mode =:= service_payload_only) or (Mode =:= service) or
-            (Mode =:= observer) ->
+            (Mode =:= default) or (Mode =:= service) or (Mode =:= observer) ->
             #message{
                 payload = Payload,
                 properties = add_local_timestamp(Mode, Time, Properties)};
@@ -2886,7 +2854,6 @@ make_sample_message_bridgecompat(Mode, Time, Payload, Properties) ->
     end.
 
 update_sample_message_properties(Mode, Properties) ->
-    {VersionStr, ModeStr} = connection_versionmode(Mode),
     DefaultSampleUserProperties =
         #{ <<"agent_label">> => <<"test-1">>,
            <<"account_label">> => <<"john-doe">>,
