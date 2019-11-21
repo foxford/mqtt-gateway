@@ -38,7 +38,7 @@ docker run -ti --rm \
     sandbox/mqtt-gateway
 
 ## Subscribing to messages
-mosquitto_sub -V 5 -h $(docker-machine ip) \
+mosquitto_sub -h $(docker-machine ip) \
     -i 'v1/agents/test-sub.john-doe.usr.example.net' \
     -t 'foo' | jq '.'
 
@@ -46,6 +46,7 @@ mosquitto_sub -V 5 -h $(docker-machine ip) \
 mosquitto_pub -V 5 -h $(docker-machine ip) \
     -i 'v1/agents/test-pub.john-doe.usr.example.net' \
     -t 'foo' \
+    -D publish user-property 'label' 'ping' \
     -D publish user-property 'local_timestamp' "$(date +%s000)" \
     -m '{}'
 ```
@@ -67,7 +68,7 @@ docker run -ti --rm \
 ## Subscribing to messages
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+    && mosquitto_sub -h $(docker-machine ip) \
         -i "v1/service-agents/test.${APP}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
@@ -82,6 +83,7 @@ APP='app.svc.example.org' \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
         -t "agents/test.${USER}/api/v1/out/${APP}" \
+        -D publish user-property 'label' 'ping' \
         -D publish user-property 'local_timestamp' "$(date +%s000)" \
         -m '{}'
 ```
@@ -112,6 +114,8 @@ BROKER='mqtt-gateway.svc.example.org' \
 mosquitto_pub -V 5 -h $(docker-machine ip) \
     -i 'v1/agents/test-pub.john-doe.usr.example.net' \
     -t 'foo' \
+    -D publish user-property 'label' 'ping' \
+    -D publish user-property 'local_timestamp' "$(date +%s000)" \
     -n
 ```
 

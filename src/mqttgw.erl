@@ -666,7 +666,7 @@ validate_message_properties(Properties, ClientId) ->
     %% Required properties for p_user_property(type)=request|response
     case maps:find(<<"type">>, UserProperties) of
         {ok, <<"request">>} ->
-            %% Rrequired properties:
+            %% Required properties:
             %% - p_user_property(method)
             %% - p_correlation_data
             %% - p_response_topic
@@ -685,7 +685,7 @@ validate_message_properties(Properties, ClientId) ->
                     verify_response_topic(binary:split(RT, <<$/>>, [global]), agent_id(ClientId))
             end;
         {ok, <<"response">>} ->
-            %% Rrequired properties:
+            %% Required properties:
             %% - p_user_property(status)
             %% - p_correlation_data
             case
@@ -694,6 +694,13 @@ validate_message_properties(Properties, ClientId) ->
 
                 {error, _} -> error({missing_status_user_property, Properties});
                 {_, error} -> error({missing_correlation_data_property, Properties});
+                _ -> ok
+            end;
+        {ok, <<"event">>} ->
+            %% Required properties:
+            %% - p_user_property(label)
+            case maps:find(<<"label">>, UserProperties) of
+                error -> error({missing_label_user_property, Properties});
                 _ -> ok
             end;
         _ ->
@@ -1984,6 +1991,8 @@ binary_join([], _)  -> <<>>.
 
 -ifdef(TEST).
 
+-define(TYPE_TEST_PROP, {<<"type">>, <<"_test">>}).
+
 version_mode_t() ->
     ?LET(
         Index,
@@ -2248,14 +2257,14 @@ prop_onpublish() ->
                 [ {<<"agent_label">>, AgentLabel},
                   {<<"account_label">>, AccountLabel},
                   {<<"audience">>, Audience} ],
-            ExpectedAuthnProperties = #{p_user_property => ExpectedAuthnUserL},
+            ExpectedAuthnProperties = #{p_user_property => [?TYPE_TEST_PROP | ExpectedAuthnUserL]},
             ExpectedTimeL = [
                 {<<"local_initial_timediff">>, TimeDiffB}],
             SessionTrackingL =
                 [ {<<"tracking_id">>, make_sample_tracking_id()},
                   {<<"session_tracking_label">>, make_sample_tracking_label()} ],
             ExpectedUserL = [
-                {<<"type">>, <<"event">>}
+                ?TYPE_TEST_PROP
                 | ExpectedAuthnUserL ++ ExpectedConnectionL ++ ExpectedBrokerL ++ SessionTrackingL],
             ExpectedProperties = fun
                 (default) -> #{p_user_property => ExpectedUserL ++ ExpectedTimeL};
@@ -2264,17 +2273,17 @@ prop_onpublish() ->
 
             %% MQTT 5
             begin
-                {InputPayload, InputProperties} =
+                InputProperties =
                     case Mode of
                         M5 when (M5 =:= default) or (M5 =:= service) or (M5 =:= observer) ->
-                            {Payload, add_local_timestamp(Mode, Time, #{})};
+                            add_local_timestamp(Mode, Time, #{p_user_property => [?TYPE_TEST_PROP]});
                         bridge ->
-                            {Payload, ExpectedAuthnProperties}
+                            ExpectedAuthnProperties
                     end,
 
                 {ok, Modifiers} =
                     handle_publish_mqtt5_constraints(
-                        Topic, InputPayload, InputProperties, QoS, IsRetain,
+                        Topic, Payload, InputProperties, QoS, IsRetain,
                         ClientId, State),
 
                 %% TODO: don't modify message payload on publish (only properties)
@@ -2294,7 +2303,7 @@ prop_onpublish() ->
                         M3 when (M3 =:= default) or (M3 =:= service) or (M3 =:= observer) ->
                             envelope(#message{
                                 payload=Payload,
-                                properties=add_local_timestamp(Mode, Time, #{})});
+                                properties=add_local_timestamp(Mode, Time, #{p_user_property => [?TYPE_TEST_PROP]})});
                         bridge ->
                             envelope(#message{
                                 payload = Payload,
@@ -2449,11 +2458,11 @@ message_properties_required_test_() ->
     NonServiceMode = AnyMode -- ServiceMode,
 
     Test = [
-        { "type: no",
+        { "type: no (event)",
           AnyMode,
-          #{},
+          #{p_user_property => [{<<"label">>, <<"test">>}]},
           ok },
-        { "type: any",
+        { "type: some",
           AnyMode,
           #{p_user_property => [{<<"type">>, <<"any">>}]},
           ok },
@@ -2489,16 +2498,17 @@ message_properties_required_test_() ->
               p_response_topic => BadResponseTopic()},
           error },
         { "user property key: number",
-          AnyMode, #{p_user_property => [{1, <<"num">>}]},
+          AnyMode, #{p_user_property => [?TYPE_TEST_PROP, {1, <<"num">>}]},
           error },
         { "user property value: number",
           AnyMode,
-          #{p_user_property => [{<<"num">>, 1}]},
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"num">>, 1}]},
           error }
     ],
 
     [begin
         [begin
+            %% NOTE: 'local_initial_timediff' is added here when needed
             Message = make_sample_message_bridgecompat(Mode, Time, <<>>, Props),
             Result =
                 try handle_message_properties(Message, ClientId(Mode), BrokerId, State(Mode)) of
@@ -2537,53 +2547,56 @@ message_properties_optional_test_() ->
     Test = [
         { "unset: broker_initial_processing_timestamp",
           AnyMode,
-          #{},
+          #{p_user_property => [?TYPE_TEST_PROP]},
           [{<<"broker_processing_timestamp">>, Time1B},
            {<<"broker_initial_processing_timestamp">>, Time1B}],
           ok },
         { "set: broker_initial_processing_timestamp",
           AnyMode,
-          #{p_user_property => [{<<"broker_initial_processing_timestamp">>, Time0B}]},
-          [{<<"broker_processing_timestamp">>, Time1B},
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"broker_initial_processing_timestamp">>, Time0B}]},
+          [?TYPE_TEST_PROP,
+           {<<"broker_processing_timestamp">>, Time1B},
            {<<"broker_initial_processing_timestamp">>, Time0B}],
           ok },
         { "unset: timestamp, local_timestamp",
           AnyMode,
-          #{},
+          #{p_user_property => [?TYPE_TEST_PROP]},
           [],
           ok },
         { "set: timestamp",
           AnyMode,
-          #{p_user_property => [{<<"timestamp">>, Time0B}]},
-          [{<<"timestamp">>, Time0B}, {<<"initial_timestamp">>, Time0B}],
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"timestamp">>, Time0B}]},
+          [?TYPE_TEST_PROP, {<<"timestamp">>, Time0B}, {<<"initial_timestamp">>, Time0B}],
           ok },
         { "set: timestamp, initial_timestamp",
           AnyMode,
           #{p_user_property =>
-            [{<<"timestamp">>, Time1B},
+            [?TYPE_TEST_PROP,
+             {<<"timestamp">>, Time1B},
              {<<"initial_timestamp">>, Time0B}]},
           [{<<"timestamp">>, Time1B}, {<<"initial_timestamp">>, Time0B}],
           ok },
         { "set: initial_timestamp",
           AnyMode,
-          #{p_user_property => [{<<"initial_timestamp">>, Time0B}]},
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"initial_timestamp">>, Time0B}]},
           [{<<"initial_timestamp">>, Time0B}],
           ok },
         { "set: local_timestamp",
           AnyMode,
-          #{p_user_property => [{<<"local_timestamp">>, Time0B}]},
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"local_timestamp">>, Time0B}]},
           [{<<"local_initial_timediff">>, TimeDiffB}],
           ok },
         { "set: local_timestamp, local_initial_timediff",
           AnyMode,
           #{p_user_property =>
-            [{<<"local_timestamp">>, Time0B},
+            [?TYPE_TEST_PROP,
+             {<<"local_timestamp">>, Time0B},
              {<<"local_initial_timediff">>, TimeDiffB}]},
           [{<<"local_initial_timediff">>, TimeDiffB}],
           ok },
         { "set: local_initial_timediff",
           AnyMode,
-          #{p_user_property => [{<<"local_initial_timediff">>, TimeDiffB}]},
+          #{p_user_property => [?TYPE_TEST_PROP, {<<"local_initial_timediff">>, TimeDiffB}]},
           [{<<"local_initial_timediff">>, TimeDiffB}],
           ok }
     ],
