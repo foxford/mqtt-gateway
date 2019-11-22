@@ -2276,7 +2276,8 @@ prop_onpublish() ->
                 InputProperties =
                     case Mode of
                         M5 when (M5 =:= default) or (M5 =:= service) or (M5 =:= observer) ->
-                            add_local_timestamp(Mode, Time, #{p_user_property => [?TYPE_TEST_PROP]});
+                            Props = #{p_user_property => [?TYPE_TEST_PROP]},
+                            add_local_timestamp(Mode, Time, Props);
                         bridge ->
                             ExpectedAuthnProperties
                     end,
@@ -2301,9 +2302,10 @@ prop_onpublish() ->
                 InputMessage3 =
                     case Mode of
                         M3 when (M3 =:= default) or (M3 =:= service) or (M3 =:= observer) ->
+                            InitProps3 = #{p_user_property => [?TYPE_TEST_PROP]},
                             envelope(#message{
                                 payload=Payload,
-                                properties=add_local_timestamp(Mode, Time, #{p_user_property => [?TYPE_TEST_PROP]})});
+                                properties=add_local_timestamp(Mode, Time, InitProps3)});
                         bridge ->
                             envelope(#message{
                                 payload = Payload,
@@ -2553,7 +2555,9 @@ message_properties_optional_test_() ->
           ok },
         { "set: broker_initial_processing_timestamp",
           AnyMode,
-          #{p_user_property => [?TYPE_TEST_PROP, {<<"broker_initial_processing_timestamp">>, Time0B}]},
+          #{p_user_property =>
+            [?TYPE_TEST_PROP,
+             {<<"broker_initial_processing_timestamp">>, Time0B}]},
           [?TYPE_TEST_PROP,
            {<<"broker_processing_timestamp">>, Time1B},
            {<<"broker_initial_processing_timestamp">>, Time0B}],
