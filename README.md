@@ -13,7 +13,7 @@ Authorization for publish/subscribe operations is based conventions and dynamic 
 
 | Name           |   Type |  Default | Description                                                      |
 | -------------- | ------ | -------- | ---------------------------------------------------------------- |
-| MQTT_CLIENT_ID | String | required | `v1/agents/${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}`    |
+| MQTT_CLIENT_ID | String | required | `${AGENT_LABEL}.${ACCOUNT_LABEL}.${AUDIENCE}`                    |
 | MQTT_PASSWORD  | String | required | JSON Web Token. Token is required if auhentification is enabled. |
 | MQTT_USERNAME  | String | optional | The value is ignored                                             |
 
@@ -39,13 +39,16 @@ docker run -ti --rm \
 
 ## Subscribing to messages
 mosquitto_sub -h $(docker-machine ip) \
-    -i 'v1/agents/test-sub.john-doe.usr.example.net' \
+    -i 'test-sub.john-doe.usr.example.net' \
+    -u 'v2::default' \
     -t 'foo' | jq '.'
 
 ## Publishing a message
 mosquitto_pub -V 5 -h $(docker-machine ip) \
-    -i 'v1/agents/test-pub.john-doe.usr.example.net' \
+    -i 'test-pub.john-doe.usr.example.net' \
     -t 'foo' \
+    -D connect user-property 'connection_version' 'v2' \
+    -D connect user-property 'connection_mode' 'default' \
     -D publish user-property 'label' 'ping' \
     -D publish user-property 'local_timestamp' "$(date +%s000)" \
     -m '{}'
@@ -69,20 +72,24 @@ docker run -ti --rm \
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
 APP='app.svc.example.org' \
     && mosquitto_sub -h $(docker-machine ip) \
-        -i "v1/service-agents/test.${APP}" \
+        -i "test.${APP}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
-        -t "agents/+/api/v1/out/${APP}" | jq '.'
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'service' \
+        -t "agents/+/api/v2/out/${APP}" | jq '.'
 
 ## Publishing a message
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA' \
 USER='john-doe.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-        -i "v1/agents/test.${USER}" \
+        -i "test.${USER}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
-        -t "agents/test.${USER}/api/v1/out/${APP}" \
+        -t "agents/test.${USER}/api/v2/out/${APP}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'default' \
         -D publish user-property 'label' 'ping' \
         -D publish user-property 'local_timestamp' "$(date +%s000)" \
         -m '{}'
@@ -106,14 +113,18 @@ docker run -ti --rm \
 OBSERVER='devops.svc.example.org' \
 BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_sub -h $(docker-machine ip) \
-        -i "v1/observer-agents/test-1.${OBSERVER}" \
-        -t "apps/${BROKER}/api/v1/audiences/+/events" \
+        -i "test-1.${OBSERVER}" \
+        -t "apps/${BROKER}/api/v2/audiences/+/events" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'observer' \
         | jq '.'
 
 ## Publishing a message
 mosquitto_pub -V 5 -h $(docker-machine ip) \
-    -i 'v1/agents/test-pub.john-doe.usr.example.net' \
+    -i 'test-pub.john-doe.usr.example.net' \
     -t 'foo' \
+    -D connect user-property 'connection_version' 'v2' \
+    -D connect user-property 'connection_mode' 'default' \
     -D publish user-property 'label' 'ping' \
     -D publish user-property 'local_timestamp' "$(date +%s000)" \
     -n
@@ -140,22 +151,30 @@ docker run -ti --rm \
 # USER='john.usr.example.net' \
 # APP='app.svc.example.org' \
 #     && mosquitto_sub -V 5 -h $(docker-machine ip) \
-#         -i "v1/observer-agents/test-1.${OBSERVER}" \
-#         -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
+#         -i "test-1.${OBSERVER}" \
+#         -t "agents/test.${USER}/api/v2/in/${APP}" \
+#         -D connect user-property 'connection_version' 'v2' \
+#         -D connect user-property 'connection_mode' 'observer' \
+#         | jq '.'
 
 ## Subscribing to the topic of user's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_sub -V 5 -h $(docker-machine ip) \
-        -i "v1/agents/test.${USER}" \
-        -t "agents/test.${USER}/api/v1/in/${APP}" | jq '.'
+        -i "test.${USER}" \
+        -t "agents/test.${USER}/api/v2/in/${APP}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'default' \
+        | jq '.'
 
 ## Subscribing to the topic of app's incoming multicast messages
 OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
     && mosquitto_sub -V 5 -h $(docker-machine ip) \
-        -i "v1/observer-agents/test-2.${OBSERVER}" \
-        -t "agents/+/api/v1/out/${APP}" | jq '.'
+        -i "test-2.${OBSERVER}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'observer' \
+        -t "agents/+/api/v2/out/${APP}" | jq '.'
 
 # NOTE: will only be possible with resolving of the 'issue:1326'.
 # https://github.com/vernemq/vernemq/issues/1326
@@ -165,32 +184,38 @@ APP='app.svc.example.org' \
 # USER='john.usr.example.net' \
 # BROKER='mqtt-gateway.svc.example.org' \
 #     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-#         -i "v1/service-agents/test.${APP}" \
-#         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+#         -i "test.${APP}" \
+#         -t "agents/test.${APP}/api/v2/out/${BROKER}" \
+#         -D connect user-property 'connection_version' 'v2' \
+#         -D connect user-property 'connection_mode' 'service' \
 #         -D publish user-property 'type' 'request' \
 #         -D publish user-property 'method' 'subscription.create' \
-#         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+#         -D publish response-topic "agents/test.${USER}/api/v2/in/${APP}" \
 #         -D publish correlation-data 'foobar' \
-#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
+#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"test.${USER}\"}"
 
 ## Creating a dynamic subscription
-# Note that the agent must be subscribed to the in-topic: "agents/test.${USER}/api/v1/in/${APP}"
+# Note that the agent must be subscribed to the in-topic: "agents/test.${USER}/api/v2/in/${APP}"
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-        -i "v1/service-agents/test.${APP}" \
-        -t "agents/test.${USER}/api/v1/in/${APP}" \
+        -i "test.${APP}" \
+        -t "agents/test.${USER}/api/v2/in/${APP}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'service' \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.create' \
-        -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+        -D publish response-topic "agents/test.${USER}/api/v2/in/${APP}" \
         -D publish correlation-data 'foobar' \
-        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
+        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"test.${USER}\"}"
 
 ## Publishing an event
 APP='app.svc.example.org' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-        -i "v1/service-agents/test.${APP}" \
-        -t "apps/${APP}/api/v1/rooms/ROOM_ID/events" \
+        -i "test.${APP}" \
+        -t "apps/${APP}/api/v2/rooms/ROOM_ID/events" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'service' \
         -D publish user-property 'type' 'event' \
         -D publish user-property 'label' 'room.create' \
         -m '{}'
@@ -203,52 +228,40 @@ APP='app.svc.example.org' \
 # USER='john.usr.example.net' \
 # BROKER='mqtt-gateway.svc.example.org' \
 #     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-#         -i "v1/service-agents/test.${APP}" \
-#         -t "agents/test.${APP}/api/v1/out/${BROKER}" \
+#         -i "test.${APP}" \
+#         -t "agents/test.${APP}/api/v2/out/${BROKER}" \
+#         -D connect user-property 'connection_version' 'v2' \
+#         -D connect user-property 'connection_mode' 'service' \
 #         -D publish user-property 'type' 'request' \
 #         -D publish user-property 'method' 'subscription.delete' \
-#         -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+#         -D publish response-topic "agents/test.${USER}/api/v2/in/${APP}" \
 #         -D publish correlation-data 'foobar' \
-#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
+#         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"test.${USER}\"}"
 
 ## Deleting the dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
     && mosquitto_pub -V 5 -h $(docker-machine ip) \
-        -i "v1/service-agents/test.${APP}" \
-        -t "agents/test.${USER}/api/v1/in/${APP}" \
+        -i "test.${APP}" \
+        -t "agents/test.${USER}/api/v2/in/${APP}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'service' \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.delete' \
-        -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+        -D publish response-topic "agents/test.${USER}/api/v2/in/${APP}" \
         -D publish correlation-data 'foobar' \
-        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"v1/agents/test.${USER}\"}"
-```
-
-```erlang
-%% We can verify receiving the event on newly created subscription using MQTT client
-{ok, C} = emqx_client:start_link([{host, {192,168,99,100}}, {port, 1883}, {proto_ver, v5}, {client_id, <<"v1/agents/test.john.usr.example.net">>}]),
-emqx_client:connect(C),
-spawn(fun() -> emqx_client:subscribe(C, <<"agents/test.john.usr.example.net/api/v1/in/+">>, 1) end).
-
-flush().
-%% Shell got {publish,#{client_pid => <0.277.0>,dup => false,
-%%                      packet_id => undefined,
-%%                      payload =>
-%%                          <<"{\"payload\":\"{}\",\"properties\":{\"account_label\":\"app\",\"agent_label\":\"test\",\"audience\":\"svc.example.org\",\"label\":\"room.create\",\"type\":\"event\"}}">>,
-%%                      properties => undefined,qos => 0,retain => false,
-%%                      topic =>
-%%                          <<"apps/app.svc.example.org/api/v1/rooms/ROOM_ID/events">>}}
+        -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"test.${USER}\"}"
 ```
 
 ```erlang
 %% We can verify that the subscription was created from the VerneMQ terminal
-mqttgw_dynsub:list(<<"v1/agents/test.john.usr.example.net">>).
+mqttgw_dynsub:list(<<"test.john.usr.example.net">>).
 
-%% [{[<<"apps">>,<<"app.svc.example.org">>,<<"api">>,<<"v1">>,
+%% [{[<<"apps">>,<<"app.svc.example.org">>,<<"api">>,<<"v2">>,
 %%    <<"rooms">>,<<"ROOM_ID">>,<<"events">>],
 %%   #{app => <<"app.svc.example.org">>,
 %%     object => [<<"rooms">>,<<"ROOM_ID">>,<<"events">>],
-%%     version => <<"v1">>}}]
+%%     version => <<"v2">>}}]
 ```
 
 
