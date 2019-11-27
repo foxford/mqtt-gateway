@@ -37,7 +37,7 @@ get(Key) ->
         _ -> error({missing_state_key, Key})
     end.
 
--spec find(any()) -> any().
+-spec find(any()) -> {ok, any()} | error.
 find(Key) ->
     case ets:lookup(?STATE_TABLE, Key) of
         [#state{value = Val}] -> {ok, Val};
