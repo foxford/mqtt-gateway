@@ -74,9 +74,7 @@ APP='app.svc.example.org' \
     && mosquitto_sub -h $(docker-machine ip) \
         -i "test.${APP}" \
         -P "${ACCESS_TOKEN}" \
-        -u 'ignore' \
-        -D connect user-property 'connection_version' 'v2' \
-        -D connect user-property 'connection_mode' 'service' \
+        -u 'v2::service' \
         -t "agents/+/api/v2/out/${APP}" | jq '.'
 
 ## Publishing a message
@@ -115,8 +113,8 @@ BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_sub -h $(docker-machine ip) \
         -i "test-1.${OBSERVER}" \
         -t "apps/${BROKER}/api/v2/audiences/+/events" \
-        -D connect user-property 'connection_version' 'v2' \
-        -D connect user-property 'connection_mode' 'observer' \
+        -P "${ACCESS_TOKEN}" \
+        -u 'v2::observer' \
         | jq '.'
 
 ## Publishing a message
@@ -160,20 +158,18 @@ docker run -ti --rm \
 ## Subscribing to the topic of user's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+    && mosquitto_sub -h $(docker-machine ip) \
         -i "test.${USER}" \
         -t "agents/test.${USER}/api/v2/in/${APP}" \
-        -D connect user-property 'connection_version' 'v2' \
-        -D connect user-property 'connection_mode' 'default' \
+        -u 'v2::default' \
         | jq '.'
 
 ## Subscribing to the topic of app's incoming multicast messages
 OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -V 5 -h $(docker-machine ip) \
+    && mosquitto_sub -h $(docker-machine ip) \
         -i "test-2.${OBSERVER}" \
-        -D connect user-property 'connection_version' 'v2' \
-        -D connect user-property 'connection_mode' 'observer' \
+        -u 'v2::observer' \
         -t "agents/+/api/v2/out/${APP}" | jq '.'
 
 # NOTE: will only be possible with resolving of the 'issue:1326'.
