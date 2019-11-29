@@ -719,14 +719,14 @@ validate_message_properties(Properties, Conn, AgentId) ->
                 {_, error} -> error({missing_correlation_data_property, Properties});
                 _ -> ok
             end;
-        %% TODO: enable checking the constraint
-        {ok, <<"event">>} ->
-            %% Required properties:
-            %% - p_user_property(label)
-            case maps:find(<<"label">>, UserProperties) of
-                error -> error({missing_label_user_property, Properties});
-                _ -> ok
-            end;
+        %% TODO[2]: enable checking the constraint
+        % {ok, <<"event">>} ->
+        %     %% Required properties:
+        %     %% - p_user_property(label)
+        %     case maps:find(<<"label">>, UserProperties) of
+        %         error -> error({missing_label_user_property, Properties});
+        %         _ -> ok
+        %     end;
         _ ->
             ok
     end,
