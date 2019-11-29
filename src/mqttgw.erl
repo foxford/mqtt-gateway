@@ -268,7 +268,7 @@ handle_connect_success_stat_config(AgentId, State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO: remove v1
+            %% TODO[1]: remove v1
             send_audience_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
@@ -353,7 +353,7 @@ handle_disconnect_stat_config(AgentId, State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO: remove v1
+            %% TODO[1]: remove v1
             send_audience_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
@@ -719,6 +719,7 @@ validate_message_properties(Properties, Conn, AgentId) ->
                 {_, error} -> error({missing_correlation_data_property, Properties});
                 _ -> ok
             end;
+        %% TODO: enable checking the constraint
         {ok, <<"event">>} ->
             %% Required properties:
             %% - p_user_property(label)
@@ -776,14 +777,14 @@ update_message_properties(Properties, Conn, AgentId, BrokerId, UniqueId, Session
             bridge ->
                 %% We do not override authn properties for 'bridge' mode,
                 %% but verify that they are exist
-                %% TODO: remove v1
+                %% TODO[1]: remove v1
                 % validate_authn_properties(UserProperties1);
-                %% TODO: add validation of 'agent_id' property
+                %% TODO[3]: add validation of 'agent_id' property
                 UserProperties1;
             _ ->
                 UserProperties1#{
                     <<"agent_id">> => mqttgw_id:format_agent_id(AgentId),
-                    %% TODO: remove v1: agent_label, account_label, audience properties
+                    %% TODO[1]: remove v1: agent_label, account_label, audience properties
                     <<"agent_label">> => AgentLabel,
                     <<"account_label">> => AccountLabel,
                     <<"audience">> => Audience}
@@ -799,7 +800,7 @@ update_message_properties(Properties, Conn, AgentId, BrokerId, UniqueId, Session
     UserProperties4 =
         UserProperties3#{
             <<"broker_id">> => mqttgw_id:format_agent_id(BrokerId),
-            %% TODO: remove v1: broker_agent_label, broker_account_label, broker_audience properties
+            %% TODO[1]: remove v1: broker_agent_label, broker_account_label, broker_audience properties
             <<"broker_agent_label">> => BrokerAgentLabel,
             <<"broker_account_label">> => BrokerAccountLabel,
             <<"broker_audience">> => BrokerAudience},
@@ -1089,7 +1090,7 @@ handle_deliver_authz_broker_dynsub_create_request(
     send_dynsub_event(
         <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
-    %% TODO: remove v1
+    %% TODO[1]: remove v1
     send_dynsub_event(
         <<"subscription.create">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
@@ -1120,7 +1121,7 @@ handle_deliver_authz_broker_dynsub_delete_request(
     send_dynsub_event(
         <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
-    %% TODO: remove v1
+    %% TODO[1]: remove v1
     send_dynsub_event(
         <<"subscription.delete">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
@@ -1174,7 +1175,7 @@ parse_deliver_broker_request_properties(Properties) ->
             {_, ClientId} ->
                 parse_agent_id(ClientId);
             _ ->
-                %% TODO: remove v1
+                %% TODO[1]: remove v1
                 {_, AgentLabel} = lists:keyfind(<<"agent_label">>, 1, UserProperties),
                 {_, AccountLabel} = lists:keyfind(<<"account_label">>, 1, UserProperties),
                 {_, Audience} = lists:keyfind(<<"audience">>, 1, UserProperties),
@@ -1411,7 +1412,7 @@ handle_broker_start_stat_config(State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO: remove v1
+            %% TODO[1]: remove v1
             send_audience_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
@@ -1482,7 +1483,7 @@ handle_broker_stop_stat_config(State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO: remove v1
+            %% TODO[1]: remove v1
             send_audience_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
@@ -1715,13 +1716,13 @@ parse_connection_params(ClientId, Properties) ->
             {#connection{mode=parse_connection_mode(Mode), version=Ver},
              parse_agent_id(ClientId)};
         _ ->
-            %% TODO: remove v1
+            %% TODO[1]: remove v1
             %% {#connection{mode=default, version=?VER_2},
             %%  parse_agent_id(ClientId)};
             parse_v1_connection_params(ClientId)
     end.
 
-%% TODO: remove v1
+%% TODO[1]: remove v1
 %% START >>>>>
 -spec parse_v1_connection_params(binary()) -> {connection(), mqttgw_id:agent_id()}.
 parse_v1_connection_params(<<"v1/agents/", R/bits>>) ->
@@ -1811,11 +1812,11 @@ parse_audience(Audience, AgentLabel, AccountLabel) ->
           label => AccountLabel,
           audience => Audience}}.
 
-% TODO: remove v1
+% TODO[1]: remove v1
 % -spec validate_authn_properties(map()) -> map().
 % validate_authn_properties(Properties) ->
-%     %% TODO: remove v1: agent_label, account_label, audience properties
-%     %% TODO: add validation of 'agent_id' property
+%     %% TODO[1]: remove v1: agent_label, account_label, audience properties
+%     %% TODO[3]: add validation of 'agent_id' property
 %     _ = validate_agent_label_property(Properties),
 %     _ = validate_account_label_property(Properties),
 %     _ = validate_audience_property(Properties),
@@ -1939,7 +1940,7 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
         <<"subscription.delete">>, Subject, Data, BrokerConn, BrokerId,
         UniqueId, SessionPairId, Time)
      || Data <- DynSubL],
-    %% TODO: remove v1
+    %% TODO[1]: remove v1
     [send_dynsub_event(
         <<"subscription.delete">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time)
@@ -2206,7 +2207,7 @@ subscribe_topic_t() ->
 qos_t() ->
     ?LET(Val, integer(0, 2), Val).
 
-%% TODO: remove v1
+%% TODO[1]: remove v1
 %% START >>>>>
 v1_version_mode_t() ->
     ?LET(
@@ -2515,7 +2516,7 @@ prop_onpublish() ->
                 Time),
             ExpectedBrokerL =
                 [ {<<"broker_id">>, mqttgw_id:format_agent_id(BrokerId)},
-                  %% TODO: remove v1
+                  %% TODO[1]: remove v1
                   {<<"broker_agent_label">>, mqttgw_id:label(BrokerId)},
                   {<<"broker_account_label">>, mqttgw_id:account_label(BrokerId)},
                   {<<"broker_audience">>, mqttgw_id:audience(BrokerId)},
@@ -2527,7 +2528,7 @@ prop_onpublish() ->
                   {<<"connection_mode">>, format_connection_mode(Mode)} ],
             ExpectedAuthnUserL =
                 [ {<<"agent_id">>, mqttgw_id:format_agent_id(AgentId)},
-                  %% TODO: remove v1
+                  %% TODO[1]: remove v1
                   {<<"agent_label">>, AgentLabel},
                   {<<"account_label">>, AccountLabel},
                   {<<"audience">>, Audience} ],
@@ -2598,32 +2599,36 @@ prop_onpublish() ->
             true
         end).
 
-bridge_missing_properties_onpublish_test_() ->
-    % QoS = minimal_constraint(qos),
-    % IsRetain = minimal_constraint(retain),
-    AgentId =
-        make_sample_agent_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>),
-    BrokerId = make_sample_broker_id(),
-    Time = 0,
-    State = make_sample_broker_state(
-        make_sample_config(disabled, disabled, disabled, BrokerId),
-        make_sample_session(bridge),
-        Time),
+%% TODO[3]: enable and update to validate the 'agent_id' property
+% bridge_missing_properties_onpublish_test_() ->
+%     % QoS = minimal_constraint(qos),
+%     % IsRetain = minimal_constraint(retain),
+%     AgentId =
+%         make_sample_agent_id(<<"foo">>, <<"bar">>, <<"svc.example.org">>),
+%     BrokerId = make_sample_broker_id(),
+%     Time = 0,
+%     State = make_sample_broker_state(
+%         make_sample_config(disabled, disabled, disabled, BrokerId),
+%         make_sample_session(bridge),
+%         Time),
 
-    %% TODO: add validation of 'agent_id' property
-    Test =
-        [{"missing properties", #{}},
-         {"missing agent_label", #{<<"account_label">> => <<>>, <<"audience">> => <<>>}},
-         {"missing account_label", #{<<"agent_label">> => <<>>, <<"audience">> => <<>>}},
-         {"missing audience", #{<<"agent_label">> => <<>>, <<"account_label">> => <<>>}}],
+%     Test =
+%         [{"missing properties", []},
+%          {"missing agent_label", [{<<"account_label">>, <<>>}, {<<"audience">>, <<>>}]},
+%          {"missing account_label", [{<<"agent_label">>, <<>>}, {<<"audience">>, <<>>}]},
+%          {"missing audience", [{<<"agent_label">>, <<>>}, {<<"account_label">>, <<>>}]}],
 
-    [begin
-        Message = jsx:encode(#{payload => <<>>, properties => Properties}),
-        Expect = {error, #{reason_code => impl_specific_error}},
+%     [begin
+%         UserProperties1 = [?TYPE_TEST_PROP | UserProperties0],
+%         Props5 = #{p_user_property => UserProperties1},
+%         Props3 = maps:from_list(UserProperties1),
+%         Message3 = jsx:encode(#{payload => <<>>, properties => Props3}),
+%         Expect = {error, #{reason_code => impl_specific_error}},
 
-        [{Desc, ?_assertEqual(Expect, handle_publish_mqtt5([], Message, #{}, AgentId, State))},
-         {Desc, ?_assertEqual(Expect, handle_publish_mqtt3([], Message, AgentId, State))}]
-     end || {Desc, Properties} <- Test].
+%         [
+%          {Desc, ?_assertEqual(Expect, handle_publish_mqtt5([], <<>>, Props5, AgentId, State))},
+%          {Desc, ?_assertEqual(Expect, handle_publish_mqtt3([], Message3, AgentId, State))}]
+%      end || {Desc, UserProperties0} <- Test].
 
 authz_onpublish_test_() ->
     Time = 0,
@@ -2915,7 +2920,7 @@ prop_ondeliver() ->
                 audience := Audience}} = AgentId = parse_agent_id(element(2, SubscriberId)),
             ExpectedAuthnUserL =
                 #{<<"agent_id">> => mqttgw_id:format_agent_id(AgentId),
-                  %% TODO: remove v1
+                  %% TODO[1]: remove v1
                   <<"agent_label">> => AgentLabel,
                   <<"account_label">> => AccountLabel,
                   <<"audience">> => Audience},
@@ -3113,7 +3118,7 @@ make_sample_agent_id(AgentLabel, AccountLabel, Audience) ->
         #{label => AccountLabel,
           audience => Audience}}.
 
-%% TODO: remove v1
+%% TODO[1]: remove v1
 v1_make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode, Version) ->
     AgentId = <<AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>,
     ModeLabel =
@@ -3154,7 +3159,7 @@ make_sample_message_bridgecompat(Mode, Time, Payload, Properties) ->
 update_sample_message_properties(Properties) ->
     DefaultSampleUserProperties =
         #{<<"agent_id">> => <<"test-1.john-doe.example.org">>,
-          %% TODO: remove v1
+          %% TODO[1]: remove v1
           <<"agent_label">> => <<"test-1">>,
           <<"account_label">> => <<"john-doe">>,
           <<"audience">> => <<"example.org">>},
