@@ -799,8 +799,8 @@ update_message_properties(Properties, Conn, AgentId, BrokerId, UniqueId, Session
     %% Additional broker properties
     UserProperties4 =
         UserProperties3#{
-            <<"broker_id">> => mqttgw_id:format_agent_id(BrokerId),
-            %% TODO[1]: remove v1: broker_agent_label, broker_account_label, broker_audience properties
+            <<"broker_agent_id">> => mqttgw_id:format_agent_id(BrokerId),
+            %% TODO[1]: remove v1: broker_agent_label, broker_account_label, broker_audience
             <<"broker_agent_label">> => BrokerAgentLabel,
             <<"broker_account_label">> => BrokerAccountLabel,
             <<"broker_audience">> => BrokerAudience},
@@ -2515,7 +2515,7 @@ prop_onpublish() ->
                 make_sample_session(Mode),
                 Time),
             ExpectedBrokerL =
-                [ {<<"broker_id">>, mqttgw_id:format_agent_id(BrokerId)},
+                [ {<<"broker_agent_id">>, mqttgw_id:format_agent_id(BrokerId)},
                   %% TODO[1]: remove v1
                   {<<"broker_agent_label">>, mqttgw_id:label(BrokerId)},
                   {<<"broker_account_label">>, mqttgw_id:account_label(BrokerId)},
