@@ -1032,7 +1032,8 @@ handle_deliver_authz_broker_request_payload(
                 case catch parse_v1compat_agent_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_create_request(
-                            Version, App, Object, Subject, CorrData, BrokerId, AgentId, State);
+                            Version, App, Object, drop_v1compat_connection_prefix(Subject),
+                            CorrData, BrokerId, AgentId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
                         %% for a different than the subject agent
@@ -1048,7 +1049,8 @@ handle_deliver_authz_broker_request_payload(
                 case catch parse_v1compat_agent_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_delete_request(
-                            Version, App, Object, Subject, CorrData, BrokerId, AgentId, State);
+                            Version, App, Object, drop_v1compat_connection_prefix(Subject),
+                            CorrData, BrokerId, AgentId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
                         %% for a different than the subject agent
@@ -1092,7 +1094,8 @@ handle_deliver_authz_broker_dynsub_create_request(
         UniqueId, SessionPairId, Time),
     %% TODO[1]: remove v1
     send_dynsub_event(
-        <<"subscription.create">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
+        <<"subscription.create">>, add_v1compat_prefix(Subject),
+        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
@@ -1123,7 +1126,8 @@ handle_deliver_authz_broker_dynsub_delete_request(
         UniqueId, SessionPairId, Time),
     %% TODO[1]: remove v1
     send_dynsub_event(
-        <<"subscription.delete">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
+        <<"subscription.delete">>, add_v1compat_prefix(Subject),
+        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
@@ -1769,14 +1773,46 @@ parse_v1_connection_params(R) ->
 -spec parse_v1compat_agent_id(binary()) -> mqttgw_id:agent_id().
 parse_v1compat_agent_id(<<"v1/agents/", R/bits>>) ->
     parse_agent_id(R);
+parse_v1compat_agent_id(<<"v2/agents/", R/bits>>) ->
+    parse_agent_id(R);
 parse_v1compat_agent_id(<<"v1/service-agents/", R/bits>>) ->
+    parse_agent_id(R);
+parse_v1compat_agent_id(<<"v2/service-agents/", R/bits>>) ->
     parse_agent_id(R);
 parse_v1compat_agent_id(<<"v1/observer-agents/", R/bits>>) ->
     parse_agent_id(R);
+parse_v1compat_agent_id(<<"v2/observer-agents/", R/bits>>) ->
+    parse_agent_id(R);
 parse_v1compat_agent_id(<<"v1/bridge-agents/", R/bits>>) ->
+    parse_agent_id(R);
+parse_v1compat_agent_id(<<"v2/bridge-agents/", R/bits>>) ->
     parse_agent_id(R);
 parse_v1compat_agent_id(Val) ->
     parse_agent_id(Val).
+
+-spec drop_v1compat_connection_prefix(binary()) -> mqttgw_id:agent_id().
+drop_v1compat_connection_prefix(<<"v1/agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v2/agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v1/service-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v2/service-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v1/observer-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v2/observer-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v1/bridge-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(<<"v2/bridge-agents/", R/bits>>) ->
+    R;
+drop_v1compat_connection_prefix(Val) ->
+    Val.
+
+-spec add_v1compat_prefix(binary()) -> binary().
+add_v1compat_prefix(ClientId) ->
+    <<"v1/agents/", ClientId/binary>>.
 
 -spec format_v1compat_connection_mode(binary(), connection_mode()) -> binary().
 format_v1compat_connection_mode(?VER_1, default) ->
@@ -1968,7 +2004,8 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
      || Data <- DynSubL],
     %% TODO[1]: remove v1
     [send_dynsub_event(
-        <<"subscription.delete">>, Subject, Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
+        <<"subscription.delete">>, add_v1compat_prefix(Subject),
+        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time)
      || Data <- DynSubL],
 
