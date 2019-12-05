@@ -1222,11 +1222,12 @@ handle_deliver_mqtt3_changes(Message, State) ->
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     ModifiedMessage = Message#message{
-        properties=update_deliver_message_properties(Properties, UniqueId, SessionPairId, Time)},
+        properties=update_deliver_message_properties(
+            Properties, Conn, UniqueId, SessionPairId, Time)},
 
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
@@ -1266,18 +1267,20 @@ handle_deliver_mqtt5_changes(_Mode, Message, State) ->
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     Changes =
         #{payload => Payload,
           properties => update_deliver_message_properties(
-              Properties, UniqueId, SessionPairId, Time)},
+              Properties, Conn, UniqueId, SessionPairId, Time)},
 
     {ok, Changes}.
 
--spec update_deliver_message_properties(map(), binary(), binary(), non_neg_integer()) -> map().
-update_deliver_message_properties(Properties, UniqueId, SessionPairId, Time) ->
+-spec update_deliver_message_properties(
+    map(), connection(), binary(), binary(), non_neg_integer())
+    -> map().
+update_deliver_message_properties(Properties, Conn, UniqueId, SessionPairId, Time) ->
     UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Additional broker properties
@@ -1292,7 +1295,10 @@ update_deliver_message_properties(Properties, UniqueId, SessionPairId, Time) ->
             SessionPairId,
             UserProperties1),
 
-    Properties#{p_user_property => maps:to_list(UserProperties2)}.
+    %% TODO: remove v1, rewrite connection mode for v1 listeners
+    UserProperties3 = v1compat_rewrite_connection_mode_property(Conn, UserProperties2),
+
+    Properties#{p_user_property => maps:to_list(UserProperties3)}.
 
 %% =============================================================================
 %% API: Subscribe
@@ -1724,6 +1730,26 @@ parse_connection_params(ClientId, Properties) ->
 
 %% TODO[1]: remove v1
 %% START >>>>>
+-spec v1compat_rewrite_connection_mode_property(connection(), map()) -> map().
+v1compat_rewrite_connection_mode_property(#connection{version= <<"v1">>}, UserProperties) ->
+    case maps:find(<<"connection_mode">>, UserProperties) of
+        {ok, <<"default">>} -> UserProperties#{<<"connection_mode">> => <<"agents">>};
+        {ok, <<"service">>} -> UserProperties#{<<"connection_mode">> => <<"service-agents">>};
+        {ok, <<"observer">>} -> UserProperties#{<<"connection_mode">> => <<"observer-agents">>};
+        {ok, <<"bridge">>} -> UserProperties#{<<"connection_mode">> => <<"bridge-agents">>};
+        _ -> UserProperties
+    end;
+v1compat_rewrite_connection_mode_property(#connection{version= <<"v2">>}, UserProperties) ->
+    case maps:find(<<"connection_mode">>, UserProperties) of
+        {ok, <<"agents">>} -> UserProperties#{<<"connection_mode">> => <<"default">>};
+        {ok, <<"service-agents">>} -> UserProperties#{<<"connection_mode">> => <<"service">>};
+        {ok, <<"observer-agents">>} -> UserProperties#{<<"connection_mode">> => <<"observer">>};
+        {ok, <<"bridge-agents">>} -> UserProperties#{<<"connection_mode">> => <<"bridge">>};
+        _ -> UserProperties
+    end;
+v1compat_rewrite_connection_mode_property(_Conn, UserProperties) ->
+    UserProperties.
+
 -spec parse_v1_connection_params(binary()) -> {connection(), mqttgw_id:agent_id()}.
 parse_v1_connection_params(<<"v1/agents/", R/bits>>) ->
     {#connection{version= ?VER_1, mode=default},
