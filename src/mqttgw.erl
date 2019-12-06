@@ -321,7 +321,8 @@ handle_disconnect_authz_config(ClientId, AgentId, State) ->
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             delete_client_dynsubs(
-                ClientId, ?BROKER_CONNECTION, BrokerId, UniqueId, SessionPairId, Time),
+                drop_v1compat_connection_prefix(ClientId), ?BROKER_CONNECTION,
+                BrokerId, UniqueId, SessionPairId, Time),
             handle_disconnect_stat_config(AgentId, State)
     end.
 
@@ -1087,6 +1088,8 @@ handle_deliver_authz_broker_dynsub_create_request(
     %% Subscribe the agent to the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     create_dynsub(Subject, Data),
+    %% TODO[1]: remove v1
+    create_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
     send_dynsub_event(
@@ -1119,6 +1122,8 @@ handle_deliver_authz_broker_dynsub_delete_request(
     %% Unsubscribe the agent from the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     delete_dynsub(Subject, Data),
+    %% TODO[1]: remove v1
+    delete_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
     send_dynsub_event(
@@ -2011,6 +2016,8 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
 
     %% Remove subscriptions
     [delete_dynsub(Subject, Data) || Data  <- DynSubL],
+    %% TODO[1]: remove v1
+    [delete_dynsub(add_v1compat_prefix(Subject), Data) || Data  <- DynSubL],
 
     ok.
 
