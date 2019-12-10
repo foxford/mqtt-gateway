@@ -1561,8 +1561,8 @@ auth_on_register(
     _Peer, {_MountPoint, Conn} = _SubscriberId, Username,
     Password, CleanSession) ->
     State = broker_initial_state(mqttgw_state:get(config), os:system_time(millisecond)),
-    Props = connect_properties_mqtt3(Username),
-    case handle_connect(Conn, Password, CleanSession, Props, State) of
+    Properties = parse_connect_properties_from_username(Username, #{}),
+    case handle_connect(Conn, Password, CleanSession, Properties, State) of
         ok ->
             ok;
         {error, #{reason_code := Reason}} ->
@@ -1570,10 +1570,11 @@ auth_on_register(
     end.
 
 auth_on_register_m5(
-    _Peer, {_MountPoint, Conn} = _SubscriberId, _Username,
-    Password, CleanSession, Properties) ->
+    _Peer, {_MountPoint, Conn} = _SubscriberId, Username,
+    Password, CleanSession, Properties0) ->
     State = broker_initial_state(mqttgw_state:get(config), os:system_time(millisecond)),
-    handle_connect(Conn, Password, CleanSession, Properties, State).
+    Properties1 = parse_connect_properties_from_username(Username, Properties0),
+    handle_connect(Conn, Password, CleanSession, Properties1, State).
 
 auth_on_publish(
     _Username, {_MountPoint, Conn} = _SubscriberId,
@@ -1712,14 +1713,14 @@ parse_connection_mode(<<"observer">>) -> observer;
 parse_connection_mode(<<"bridge">>)   -> bridge;
 parse_connection_mode(Mode)           -> error({bad_mode, Mode}).
 
--spec connect_properties_mqtt3(binary()) -> map().
-connect_properties_mqtt3(<<"v2::", Mode/binary>>) ->
+-spec parse_connect_properties_from_username(binary(), map()) -> map().
+parse_connect_properties_from_username(<<"v2::", Mode/binary>>, Props) ->
     UserProperties =
         [{<<"connection_version">>, ?VER_2},
          {<<"connection_mode">>, Mode}],
-    #{p_user_property => UserProperties};
-connect_properties_mqtt3(_Val) ->
-    #{}.
+    Props#{p_user_property => UserProperties};
+parse_connect_properties_from_username(_Val, Props) ->
+    Props.
 
 -spec parse_connection_params(binary(), map()) -> {connection(), mqttgw_id:agent_id()}.
 parse_connection_params(ClientId, Properties) ->
