@@ -257,7 +257,7 @@ handle_connect_success_stat_config(AgentId, State) ->
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.enter">>},
@@ -269,7 +269,7 @@ handle_connect_success_stat_config(AgentId, State) ->
                 SessionPairId,
                 Time),
             %% TODO[1]: remove v1
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.enter">>},
@@ -343,7 +343,7 @@ handle_disconnect_stat_config(AgentId, State) ->
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
@@ -355,7 +355,7 @@ handle_disconnect_stat_config(AgentId, State) ->
                 SessionPairId,
                 Time),
             %% TODO[1]: remove v1
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
@@ -610,7 +610,7 @@ handle_publish_authz_broker_request(
 %         UniqueId, SessionPairId, Time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(
+%     send_dynsub_multicast_event(
 %         <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
 %         UniqueId, SessionPairId, Time),
 %     ok.
@@ -638,7 +638,7 @@ handle_publish_authz_broker_request(
 %         UniqueId, SessionPairId, Time),
 
 %     %% Send a multicast event to the application
-%     send_dynsub_event(
+%     send_dynsub_multicast_event(
 %         <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
 %         UniqueId, SessionPairId, Time),
 %     ok.
@@ -1092,13 +1092,8 @@ handle_deliver_authz_broker_dynsub_create_request(
     create_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(
+    send_dynsub_multicast_event(
         <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-    %% TODO[1]: remove v1
-    send_dynsub_event(
-        <<"subscription.create">>, add_v1compat_prefix(Subject),
-        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
@@ -1126,13 +1121,8 @@ handle_deliver_authz_broker_dynsub_delete_request(
     delete_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
-    send_dynsub_event(
+    send_dynsub_multicast_event(
         <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-    %% TODO[1]: remove v1
-    send_dynsub_event(
-        <<"subscription.delete">>, add_v1compat_prefix(Subject),
-        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
@@ -1416,7 +1406,7 @@ handle_broker_start_stat_config(State) ->
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.enter">>},
@@ -1428,7 +1418,7 @@ handle_broker_start_stat_config(State) ->
                 SessionPairId,
                 Time),
             %% TODO[1]: remove v1
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.enter">>},
@@ -1487,7 +1477,7 @@ handle_broker_stop_stat_config(State) ->
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
@@ -1499,7 +1489,7 @@ handle_broker_stop_stat_config(State) ->
                 SessionPairId,
                 Time),
             %% TODO[1]: remove v1
-            send_audience_event(
+            send_audience_broadcast_event(
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
@@ -1743,19 +1733,45 @@ parse_connection_params(ClientId, Properties) ->
 -spec v1compat_rewrite_connection_mode_property(connection(), map()) -> map().
 v1compat_rewrite_connection_mode_property(#connection{version= <<"v1">>}, UserProperties) ->
     case maps:find(<<"connection_mode">>, UserProperties) of
-        {ok, <<"default">>} -> UserProperties#{<<"connection_mode">> => <<"agents">>};
-        {ok, <<"service">>} -> UserProperties#{<<"connection_mode">> => <<"service-agents">>};
-        {ok, <<"observer">>} -> UserProperties#{<<"connection_mode">> => <<"observer-agents">>};
-        {ok, <<"bridge">>} -> UserProperties#{<<"connection_mode">> => <<"bridge-agents">>};
-        _ -> UserProperties
+        {ok, <<"default">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"agents">>,
+                <<"connection_version">> => <<"v1">>};
+        {ok, <<"service">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"service-agents">>,
+                <<"connection_version">> => <<"v1">>};
+        {ok, <<"observer">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"observer-agents">>,
+                <<"connection_version">> => <<"v1">>};
+        {ok, <<"bridge">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"bridge-agents">>,
+                <<"connection_version">> => <<"v1">>};
+        _ ->
+            UserProperties
     end;
 v1compat_rewrite_connection_mode_property(#connection{version= <<"v2">>}, UserProperties) ->
     case maps:find(<<"connection_mode">>, UserProperties) of
-        {ok, <<"agents">>} -> UserProperties#{<<"connection_mode">> => <<"default">>};
-        {ok, <<"service-agents">>} -> UserProperties#{<<"connection_mode">> => <<"service">>};
-        {ok, <<"observer-agents">>} -> UserProperties#{<<"connection_mode">> => <<"observer">>};
-        {ok, <<"bridge-agents">>} -> UserProperties#{<<"connection_mode">> => <<"bridge">>};
-        _ -> UserProperties
+        {ok, <<"agents">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"default">>,
+                <<"connection_version">> => <<"v2">>};
+        {ok, <<"service-agents">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"service">>,
+                <<"connection_version">> => <<"v2">>};
+        {ok, <<"observer-agents">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"observer">>,
+                <<"connection_version">> => <<"v2">>};
+        {ok, <<"bridge-agents">>} ->
+            UserProperties#{
+                <<"connection_mode">> => <<"bridge">>,
+                <<"connection_version">> => <<"v2">>};
+        _ ->
+            UserProperties
     end;
 v1compat_rewrite_connection_mode_property(_Conn, UserProperties) ->
     UserProperties.
@@ -2004,14 +2020,8 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
     % DynSubL = mqttgw_dynsub:list(Subject),
 
     %% Send a multicast event to the application
-    [send_dynsub_event(
+    [send_dynsub_multicast_event(
         <<"subscription.delete">>, Subject, Data, BrokerConn, BrokerId,
-        UniqueId, SessionPairId, Time)
-     || Data <- DynSubL],
-    %% TODO[1]: remove v1
-    [send_dynsub_event(
-        <<"subscription.delete">>, add_v1compat_prefix(Subject),
-        Data, ?BROKER_V1COMPAT_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time)
      || Data <- DynSubL],
 
@@ -2080,15 +2090,16 @@ erase_dynsubs(BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
 %             {error, #{reason_code => impl_specific_error}}
 %     end.
 
--spec send_dynsub_event(
+-spec send_dynsub_multicast_event(
     binary(), mqttgw_dynsub:subject(), mqttgw_dynsub:data(),
     connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
     -> ok.
-send_dynsub_event(Label, Subject, Data, SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
+send_dynsub_multicast_event(
+    Label, Subject, Data, SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
     QoS = 1,
     #{app := App, object := Object} = Data,
     try mqttgw_broker:publish(
-        dynsub_event_topic(SenderConn, App, SenderId),
+        dynsub_event_multicast_topic(Data, SenderId),
         envelope(
             #message{
                 payload = jsx:encode(
@@ -2123,13 +2134,13 @@ send_dynsub_event(Label, Subject, Data, SenderConn, SenderId, UniqueId, SessionP
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec send_audience_event(
+-spec send_audience_broadcast_event(
     map(), list(), connection(), mqttgw_id:agent_id(), mqttgw_id:agent_id(),
     binary(), binary(), non_neg_integer())
     -> ok.
-send_audience_event(
+send_audience_broadcast_event(
     Payload, UserProperties, SenderConn, SenderId, AgentId, UniqueId, SessionPairId, Time) ->
-    Topic = audience_event_topic(SenderConn, AgentId, SenderId),
+    Topic = audience_event_broadcast_topic(SenderConn, AgentId, SenderId),
     QoS = 1,
     try mqttgw_broker:publish(
         Topic,
@@ -2163,15 +2174,17 @@ send_audience_event(
             {error, #{reason_code => impl_specific_error}}
     end.
 
--spec audience_event_topic(connection(), mqttgw_id:agent_id(), mqttgw_id:agent_id()) -> topic().
-audience_event_topic(Conn, AgentId, BrokerId) ->
+-spec audience_event_broadcast_topic(
+    connection(), mqttgw_id:agent_id(), mqttgw_id:agent_id())
+    -> topic().
+audience_event_broadcast_topic(Conn, AgentId, BrokerId) ->
     #connection{version=Ver} = Conn,
     [<<"apps">>, mqttgw_id:format_account_id(BrokerId),
      <<"api">>, Ver, <<"audiences">>, mqttgw_id:audience(AgentId), <<"events">>].
 
--spec dynsub_event_topic(connection(), binary(), mqttgw_id:agent_id()) -> topic().
-dynsub_event_topic(Conn, App, BrokerId) ->
-    #connection{version=Ver} = Conn,
+-spec dynsub_event_multicast_topic(mqttgw_dynsub:data(), mqttgw_id:agent_id()) -> topic().
+dynsub_event_multicast_topic(Data, BrokerId) ->
+    #{version := Ver, app := App} = Data,
     [<<"agents">>, mqttgw_id:format_agent_id(BrokerId),
      <<"api">>, Ver, <<"out">>, App].
 
