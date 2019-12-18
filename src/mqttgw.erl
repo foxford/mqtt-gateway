@@ -45,10 +45,8 @@
 
 %% Definitions
 -define(APP, ?MODULE).
--define(VER_1, <<"v1">>).
 -define(VER_2, <<"v2">>).
 -define(BROKER_CONNECTION, #connection{mode=service, version=?VER_2}).
--define(BROKER_V1COMPAT_CONNECTION, #connection{mode=service, version=?VER_1}).
 
 %% Types
 -type qos() :: 0..2.
@@ -268,18 +266,6 @@ handle_connect_success_stat_config(AgentId, State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO[1]: remove v1
-            send_audience_broadcast_event(
-                #{id => mqttgw_id:format_agent_id(AgentId)},
-                [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.enter">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
-                ?BROKER_V1COMPAT_CONNECTION,
-                BrokerId,
-                AgentId,
-                UniqueId,
-                SessionPairId,
-                Time),
             ok
     end.
 
@@ -321,7 +307,7 @@ handle_disconnect_authz_config(ClientId, AgentId, State) ->
             SessionPairId = format_session_id(SessionId, ParentSessionId),
 
             delete_client_dynsubs(
-                drop_v1compat_connection_prefix(ClientId), ?BROKER_CONNECTION,
+                ClientId, ?BROKER_CONNECTION,
                 BrokerId, UniqueId, SessionPairId, Time),
             handle_disconnect_stat_config(AgentId, State)
     end.
@@ -349,18 +335,6 @@ handle_disconnect_stat_config(AgentId, State) ->
                   {<<"label">>, <<"agent.leave">>},
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 ?BROKER_CONNECTION,
-                BrokerId,
-                AgentId,
-                UniqueId,
-                SessionPairId,
-                Time),
-            %% TODO[1]: remove v1
-            send_audience_broadcast_event(
-                #{id => mqttgw_id:format_agent_id(AgentId)},
-                [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.leave">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
-                ?BROKER_V1COMPAT_CONNECTION,
                 BrokerId,
                 AgentId,
                 UniqueId,
@@ -752,14 +726,6 @@ verify_response_topic(Topic, AgentId) ->
     binary(), binary(), non_neg_integer())
     -> map().
 update_message_properties(Properties, Conn, AgentId, BrokerId, UniqueId, SessionPairId, Time) ->
-    #{label := BrokerAgentLabel,
-      account_id := #{
-          label := BrokerAccountLabel,
-          audience := BrokerAudience}} = BrokerId,
-    #{label := AgentLabel,
-      account_id := #{
-          label := AccountLabel,
-          audience := Audience}} = AgentId,
     #connection{mode=Mode, version=Ver} = Conn,
 
     TimeB = integer_to_binary(Time),
@@ -778,33 +744,20 @@ update_message_properties(Properties, Conn, AgentId, BrokerId, UniqueId, Session
             bridge ->
                 %% We do not override authn properties for 'bridge' mode,
                 %% but verify that they are exist
-                %% TODO[1]: remove v1
-                % validate_authn_properties(UserProperties1);
-                %% TODO[3]: add validation of 'agent_id' property
-                UserProperties1;
+                validate_authn_properties(UserProperties1);
             _ ->
-                UserProperties1#{
-                    <<"agent_id">> => mqttgw_id:format_agent_id(AgentId),
-                    %% TODO[1]: remove v1: agent_label, account_label, audience properties
-                    <<"agent_label">> => AgentLabel,
-                    <<"account_label">> => AccountLabel,
-                    <<"audience">> => Audience}
+                UserProperties1#{<<"agent_id">> => mqttgw_id:format_agent_id(AgentId)}
         end,
 
     %% Additional connection properties
     UserProperties3 =
         UserProperties2#{
             <<"connection_version">> => Ver,
-            <<"connection_mode">> => format_v1compat_connection_mode(Ver, Mode)},
+            <<"connection_mode">> => format_connection_mode(Mode)},
 
     %% Additional broker properties
     UserProperties4 =
-        UserProperties3#{
-            <<"broker_agent_id">> => mqttgw_id:format_agent_id(BrokerId),
-            %% TODO[1]: remove v1: broker_agent_label, broker_account_label, broker_audience
-            <<"broker_agent_label">> => BrokerAgentLabel,
-            <<"broker_account_label">> => BrokerAccountLabel,
-            <<"broker_audience">> => BrokerAudience},
+        UserProperties3#{<<"broker_agent_id">> => mqttgw_id:format_agent_id(BrokerId)},
     UserProperties5 =
         case maps:find(<<"broker_initial_processing_timestamp">>, UserProperties4) of
             {ok, _BrokerInitProcTs} ->
@@ -1030,10 +983,10 @@ handle_deliver_authz_broker_request_payload(
            connection_mode := service,
            correlation_data := CorrData,
            sent_by := AgentId}} ->
-                case catch parse_v1compat_agent_id(Subject) of
+                case catch parse_agent_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_create_request(
-                            Version, App, Object, drop_v1compat_connection_prefix(Subject),
+                            Version, App, Object, Subject,
                             CorrData, BrokerId, AgentId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
@@ -1047,10 +1000,10 @@ handle_deliver_authz_broker_request_payload(
            connection_mode := service,
            correlation_data := CorrData,
            sent_by := AgentId}} ->
-                case catch parse_v1compat_agent_id(Subject) of
+                case catch parse_agent_id(Subject) of
                     RecvId ->
                         handle_deliver_authz_broker_dynsub_delete_request(
-                            Version, App, Object, drop_v1compat_connection_prefix(Subject),
+                            Version, App, Object, Subject,
                             CorrData, BrokerId, AgentId, State);
                     _ ->
                         %% NOTE: don't do anything if a delivery callback was called
@@ -1088,8 +1041,6 @@ handle_deliver_authz_broker_dynsub_create_request(
     %% Subscribe the agent to the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     create_dynsub(Subject, Data),
-    %% TODO[1]: remove v1
-    create_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
     send_dynsub_multicast_event(
@@ -1097,7 +1048,8 @@ handle_deliver_authz_broker_dynsub_create_request(
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
-    SenderConn = #connection{version=Version, mode=service},
+    %% NOTE: only 'service' is allowed to send a dynsub request and all the senders use 'v2'.
+    SenderConn = #connection{version=?VER_2, mode=service},
     create_dynsub_response(
         CorrData, BrokerId, SenderConn, AgentId,
         UniqueId, SessionPairId, Time).
@@ -1117,8 +1069,6 @@ handle_deliver_authz_broker_dynsub_delete_request(
     %% Unsubscribe the agent from the app's topic and send a success response
     Data = #{app => App, object => Object, version => Version},
     delete_dynsub(Subject, Data),
-    %% TODO[1]: remove v1
-    delete_dynsub(add_v1compat_prefix(Subject), Data),
 
     %% Send a multicast event to the application
     send_dynsub_multicast_event(
@@ -1126,7 +1076,8 @@ handle_deliver_authz_broker_dynsub_delete_request(
         UniqueId, SessionPairId, Time),
 
     %% Send an unicast response to the 3rd-party agent
-    SenderConn = #connection{version=Version, mode=service},
+    %% NOTE: only 'service' is allowed to send a dynsub request and all the senders use 'v2'.
+    SenderConn = #connection{version=?VER_2, mode=service},
     create_dynsub_response(
         CorrData, BrokerId, SenderConn, AgentId,
         UniqueId, SessionPairId, Time).
@@ -1167,25 +1118,13 @@ parse_deliver_broker_request_properties(Properties) ->
       p_response_topic := RespTopic} = Properties,
     {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
     {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
-    {_, ConnVer} = lists:keyfind(<<"connection_version">>, 1, UserProperties),
     {_, ConnMode} = lists:keyfind(<<"connection_mode">>, 1, UserProperties),
-    AgentId =
-        case lists:keyfind(<<"agent_id">>, 1, UserProperties) of
-            {_, ClientId} ->
-                parse_agent_id(ClientId);
-            _ ->
-                %% TODO[1]: remove v1
-                {_, AgentLabel} = lists:keyfind(<<"agent_label">>, 1, UserProperties),
-                {_, AccountLabel} = lists:keyfind(<<"account_label">>, 1, UserProperties),
-                {_, Audience} = lists:keyfind(<<"audience">>, 1, UserProperties),
-                #{label => AgentLabel,
-                  account_id =>
-                    #{label => AccountLabel,
-                      audience => Audience}}
-        end,
+    {_, AgentIdB} = lists:keyfind(<<"agent_id">>, 1, UserProperties),
+    AgentId = parse_agent_id(AgentIdB),
+
     #{type => Type,
       method => Method,
-      connection_mode => parse_v1compat_connection_mode(ConnVer, ConnMode),
+      connection_mode => parse_connection_mode(ConnMode),
       correlation_data => CorrData,
       response_topic => RespTopic,
       sent_by => AgentId}.
@@ -1221,12 +1160,12 @@ handle_deliver_mqtt3_changes(Message, State) ->
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     ModifiedMessage = Message#message{
         properties=update_deliver_message_properties(
-            Properties, Conn, UniqueId, SessionPairId, Time)},
+            Properties, UniqueId, SessionPairId, Time)},
 
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
@@ -1266,20 +1205,20 @@ handle_deliver_mqtt5_changes(_Mode, Message, State) ->
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     Changes =
         #{payload => Payload,
           properties => update_deliver_message_properties(
-              Properties, Conn, UniqueId, SessionPairId, Time)},
+              Properties, UniqueId, SessionPairId, Time)},
 
     {ok, Changes}.
 
 -spec update_deliver_message_properties(
-    map(), connection(), binary(), binary(), non_neg_integer())
+    map(), binary(), binary(), non_neg_integer())
     -> map().
-update_deliver_message_properties(Properties, Conn, UniqueId, SessionPairId, Time) ->
+update_deliver_message_properties(Properties, UniqueId, SessionPairId, Time) ->
     UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
 
     %% Additional broker properties
@@ -1294,10 +1233,7 @@ update_deliver_message_properties(Properties, Conn, UniqueId, SessionPairId, Tim
             SessionPairId,
             UserProperties1),
 
-    %% TODO: remove v1, rewrite connection mode for v1 listeners
-    UserProperties3 = v1compat_rewrite_connection_mode_property(Conn, UserProperties2),
-
-    Properties#{p_user_property => maps:to_list(UserProperties3)}.
+    Properties#{p_user_property => maps:to_list(UserProperties2)}.
 
 %% =============================================================================
 %% API: Subscribe
@@ -1417,18 +1353,6 @@ handle_broker_start_stat_config(State) ->
                 UniqueId,
                 SessionPairId,
                 Time),
-            %% TODO[1]: remove v1
-            send_audience_broadcast_event(
-                #{id => mqttgw_id:format_agent_id(BrokerId)},
-                [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.enter">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
-                ?BROKER_V1COMPAT_CONNECTION,
-                BrokerId,
-                BrokerId,
-                UniqueId,
-                SessionPairId,
-                Time),
             handle_broker_start_success();
         _ ->
             handle_broker_start_success()
@@ -1483,18 +1407,6 @@ handle_broker_stop_stat_config(State) ->
                   {<<"label">>, <<"agent.leave">>},
                   {<<"timestamp">>, integer_to_binary(Ts)} ],
                 ?BROKER_CONNECTION,
-                BrokerId,
-                BrokerId,
-                UniqueId,
-                SessionPairId,
-                Time),
-            %% TODO[1]: remove v1
-            send_audience_broadcast_event(
-                #{id => mqttgw_id:format_agent_id(BrokerId)},
-                [ {<<"type">>, <<"event">>},
-                  {<<"label">>, <<"agent.leave">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
-                ?BROKER_V1COMPAT_CONNECTION,
                 BrokerId,
                 BrokerId,
                 UniqueId,
@@ -1569,7 +1481,7 @@ auth_on_register_m5(
 auth_on_publish(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1580,7 +1492,7 @@ auth_on_publish(
 auth_on_publish_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     QoS, Topic, Payload, IsRetain, Properties) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1591,7 +1503,7 @@ auth_on_publish_m5(
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Topic, Payload) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1601,7 +1513,7 @@ on_deliver(
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Topic, Payload, Properties) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1611,7 +1523,7 @@ on_deliver_m5(
 auth_on_subscribe(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1626,7 +1538,7 @@ auth_on_subscribe(
 auth_on_subscribe_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
     Subscriptions, _Properties) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1634,7 +1546,7 @@ auth_on_subscribe_m5(
     handle_subscribe_authz(Subscriptions, AgentId, State).
 
 on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1642,7 +1554,7 @@ on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
     handle_disconnect(Conn, AgentId, State).
 
 on_client_gone({_MountPoint, Conn} = _SubscriberId) ->
-    AgentId = parse_v1compat_agent_id(Conn),
+    AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
@@ -1715,153 +1627,18 @@ parse_connect_properties_from_username(_Val, Props) ->
 -spec parse_connection_params(binary(), map()) -> {connection(), mqttgw_id:agent_id()}.
 parse_connection_params(ClientId, Properties) ->
     UserProperties = maps:from_list(maps:get(p_user_property, Properties, [])),
-    case {
-        maps:find(<<"connection_version">>, UserProperties),
-        maps:find(<<"connection_mode">>, UserProperties)} of
-        {{ok, ?VER_2 =Ver}, {ok, Mode}} ->
-            {#connection{mode=parse_connection_mode(Mode), version=Ver},
-             parse_agent_id(ClientId)};
-        _ ->
-            %% TODO[1]: remove v1
-            %% {#connection{mode=default, version=?VER_2},
-            %%  parse_agent_id(ClientId)};
-            parse_v1_connection_params(ClientId)
-    end.
+    Mode =
+        case {
+            maps:find(<<"connection_version">>, UserProperties),
+            maps:find(<<"connection_mode">>, UserProperties)} of
+            {{ok, ?VER_2}, {ok, ModeB}} ->
+                parse_connection_mode(ModeB);
+            _ ->
+                default
+        end,
 
-%% TODO[1]: remove v1
-%% START >>>>>
--spec v1compat_rewrite_connection_mode_property(connection(), map()) -> map().
-v1compat_rewrite_connection_mode_property(#connection{version= <<"v1">>}, UserProperties) ->
-    case maps:find(<<"connection_mode">>, UserProperties) of
-        {ok, <<"default">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"agents">>,
-                <<"connection_version">> => <<"v1">>};
-        {ok, <<"service">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"service-agents">>,
-                <<"connection_version">> => <<"v1">>};
-        {ok, <<"observer">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"observer-agents">>,
-                <<"connection_version">> => <<"v1">>};
-        {ok, <<"bridge">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"bridge-agents">>,
-                <<"connection_version">> => <<"v1">>};
-        _ ->
-            UserProperties
-    end;
-v1compat_rewrite_connection_mode_property(#connection{version= <<"v2">>}, UserProperties) ->
-    case maps:find(<<"connection_mode">>, UserProperties) of
-        {ok, <<"agents">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"default">>,
-                <<"connection_version">> => <<"v2">>};
-        {ok, <<"service-agents">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"service">>,
-                <<"connection_version">> => <<"v2">>};
-        {ok, <<"observer-agents">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"observer">>,
-                <<"connection_version">> => <<"v2">>};
-        {ok, <<"bridge-agents">>} ->
-            UserProperties#{
-                <<"connection_mode">> => <<"bridge">>,
-                <<"connection_version">> => <<"v2">>};
-        _ ->
-            UserProperties
-    end;
-v1compat_rewrite_connection_mode_property(_Conn, UserProperties) ->
-    UserProperties.
-
--spec parse_v1_connection_params(binary()) -> {connection(), mqttgw_id:agent_id()}.
-parse_v1_connection_params(<<"v1/agents/", R/bits>>) ->
-    {#connection{version= ?VER_1, mode=default},
-     parse_agent_id(R)};
-parse_v1_connection_params(<<"v1/service-agents/", R/bits>>) ->
-    {#connection{version= ?VER_1, mode=service},
-     parse_agent_id(R)};
-parse_v1_connection_params(<<"v1/observer-agents/", R/bits>>) ->
-    {#connection{version= ?VER_1, mode=observer},
-     parse_agent_id(R)};
-parse_v1_connection_params(<<"v1/bridge-agents/", R/bits>>) ->
-    {#connection{version= ?VER_1, mode=bridge},
-     parse_agent_id(R)};
-parse_v1_connection_params(R) ->
-    error({bad_mode, [R]}).
-
--spec parse_v1compat_agent_id(binary()) -> mqttgw_id:agent_id().
-parse_v1compat_agent_id(<<"v1/agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v2/agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v1/service-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v2/service-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v1/observer-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v2/observer-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v1/bridge-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(<<"v2/bridge-agents/", R/bits>>) ->
-    parse_agent_id(R);
-parse_v1compat_agent_id(Val) ->
-    parse_agent_id(Val).
-
--spec drop_v1compat_connection_prefix(binary()) -> mqttgw_id:agent_id().
-drop_v1compat_connection_prefix(<<"v1/agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v2/agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v1/service-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v2/service-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v1/observer-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v2/observer-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v1/bridge-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(<<"v2/bridge-agents/", R/bits>>) ->
-    R;
-drop_v1compat_connection_prefix(Val) ->
-    Val.
-
--spec add_v1compat_prefix(binary()) -> binary().
-add_v1compat_prefix(ClientId) ->
-    <<"v1/agents/", ClientId/binary>>.
-
--spec format_v1compat_connection_mode(binary(), connection_mode()) -> binary().
-format_v1compat_connection_mode(?VER_1, default) ->
-    <<"agents">>;
-format_v1compat_connection_mode(?VER_1, service) ->
-    <<"service-agents">>;
-format_v1compat_connection_mode(?VER_1, observer) ->
-    <<"observer-agents">>;
-format_v1compat_connection_mode(?VER_1, bridge) ->
-    <<"bridge-agents">>;
-format_v1compat_connection_mode(?VER_2, Mode) ->
-    format_connection_mode(Mode).
-
--spec parse_v1compat_connection_mode(binary(), binary()) -> connection_mode().
-parse_v1compat_connection_mode(?VER_1, <<"agents">>) ->
-    default;
-parse_v1compat_connection_mode(?VER_1, <<"service-agents">>) ->
-    service;
-parse_v1compat_connection_mode(?VER_1, <<"observer-agents">>) ->
-    observer;
-parse_v1compat_connection_mode(?VER_1, <<"bridge-agents">>) ->
-    bridge;
-parse_v1compat_connection_mode(?VER_1, Mode) ->
-    error({bad_v1mode, Mode});
-parse_v1compat_connection_mode(?VER_2, Mode) ->
-    parse_connection_mode(Mode).
-%% <<<<< END
+    {#connection{mode=Mode, version=?VER_2},
+     parse_agent_id(ClientId)}.
 
 -spec parse_agent_id(binary()) -> mqttgw_id:agent_id().
 parse_agent_id(Val) ->
@@ -1896,39 +1673,18 @@ parse_audience(Audience, AgentLabel, AccountLabel) ->
           label => AccountLabel,
           audience => Audience}}.
 
-% TODO[1]: remove v1
-% -spec validate_authn_properties(map()) -> map().
-% validate_authn_properties(Properties) ->
-%     %% TODO[1]: remove v1: agent_label, account_label, audience properties
-%     %% TODO[3]: add validation of 'agent_id' property
-%     _ = validate_agent_label_property(Properties),
-%     _ = validate_account_label_property(Properties),
-%     _ = validate_audience_property(Properties),
-%     Properties.
+-spec validate_authn_properties(map()) -> map().
+validate_authn_properties(Properties) ->
+    _ = validate_agent_id_property(Properties),
+    Properties.
 
-% -spec validate_agent_label_property(map()) -> binary().
-% validate_agent_label_property(#{<<"agent_label">> := Val}) when is_binary(Val) ->
-%     Val;
-% validate_agent_label_property(#{<<"agent_label">> := Val}) ->
-%     error({bad_agent_label, Val});
-% validate_agent_label_property(_) ->
-%     error(missing_agent_label).
-
-% -spec validate_account_label_property(map()) -> binary().
-% validate_account_label_property(#{<<"account_label">> := Val}) when is_binary(Val) ->
-%     Val;
-% validate_account_label_property(#{<<"account_label">> := Val}) ->
-%     error({bad_account_label, Val});
-% validate_account_label_property(_) ->
-%     error(missing_account_label).
-
-% -spec validate_audience_property(map()) -> binary().
-% validate_audience_property(#{<<"audience">> := Val}) when is_binary(Val) ->
-%     Val;
-% validate_audience_property(#{<<"audience">> := Val}) ->
-%     error({bad_audience, Val});
-% validate_audience_property(_) ->
-%     error(missing_audience).
+-spec validate_agent_id_property(map()) -> binary().
+validate_agent_id_property(#{<<"agent_id">> := Val}) when is_binary(Val) ->
+    Val;
+validate_agent_id_property(#{<<"agent_id">> := Val}) ->
+    error({bad_agent_label, Val});
+validate_agent_id_property(_) ->
+    error(missing_agent_label).
 
 -spec validate_envelope(message()) -> message().
 validate_envelope(Val) ->
@@ -2027,8 +1783,6 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
 
     %% Remove subscriptions
     [delete_dynsub(Subject, Data) || Data  <- DynSubL],
-    %% TODO[1]: remove v1
-    [delete_dynsub(add_v1compat_prefix(Subject), Data) || Data  <- DynSubL],
 
     ok.
 
@@ -2291,150 +2045,6 @@ subscribe_topic_t() ->
 qos_t() ->
     ?LET(Val, integer(0, 2), Val).
 
-%% TODO[1]: remove v1
-%% START >>>>>
-v1_version_mode_t() ->
-    ?LET(
-        Index,
-        choose(1, 4),
-        lists:nth(Index,
-            [{?VER_1, <<"agents">>},
-             {?VER_1, <<"bridge-agents">>},
-             {?VER_1, <<"observer-agents">>},
-             {?VER_1, <<"service-agents">>}])).
-
-v1_client_id_t() ->
-    ?LET(
-        {{Version, Mode}, AgentLabel, AccountLabel, Audience},
-        {v1_version_mode_t(), label_t(), label_t(), label_t()},
-        <<Version/binary, $/, Mode/binary, $/,
-          AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>).
-
-v1_subscriber_id_t() ->
-    ?LET(
-        {MountPoint, AgentId},
-        {string(), v1_client_id_t()},
-        {MountPoint, AgentId}).
-
-prop_onconnect_v1() ->
-    ?FORALL(
-        {SubscriberId, Password},
-        {v1_subscriber_id_t(), binary_utf8_t()},
-        begin
-            CleanSession = minimal_constraint(clean_session),
-
-            Time = 0,
-            BrokerId = make_sample_broker_id(),
-            Conn = element(2, SubscriberId),
-            Config = make_sample_config(disabled, disabled, disabled),
-            State = broker_initial_state(Config, Time),
-
-            %% NOTE: we use it to read the broker config and store agent's initial state
-            mqttgw_state:new(),
-            mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BrokerId)),
-            mqttgw_state:put(BrokerId, make_sample_broker_session()),
-
-            ok = handle_connect(Conn, Password, CleanSession, #{}, State),
-            true
-        end).
-
-v1_authz_onconnect_test_() ->
-    CleanSession = minimal_constraint(clean_session),
-    Time = 0,
-
-    AgentLabel = <<"foo">>,
-    AccountLabel = <<"bar">>,
-    SvcAud = BrokerAud = <<"svc.example.org">>,
-    SvcAccountId = #{label => AccountLabel, audience => SvcAud},
-    UsrAud = <<"usr.example.net">>,
-
-    #{password := SvcPassword,
-      config := SvcAuthnConfig} =
-        make_sample_password(<<"bar">>, SvcAud, <<"svc.example.org">>),
-    #{password := UsrPassword,
-      config := UsrAuthnConfig} =
-        make_sample_password(<<"bar">>, UsrAud, <<"iam.svc.example.net">>),
-    #{id := BrokerId,
-      config := AuthzConfig} = make_sample_broker_config(BrokerAud, [SvcAccountId]),
-
-    Test = [
-        { "usr: allowed",
-          [default], UsrAud, UsrPassword,
-          ok },
-        { "usr: forbidden",
-          [service, observer, bridge], UsrAud, UsrPassword,
-          {error, #{reason_code => not_authorized}} },
-        { "svc: allowed",
-          [default, service, observer, bridge], SvcAud, SvcPassword,
-          ok }
-    ],
-
-    %% NOTE: we use it to read the broker config and store agent's initial state
-    mqttgw_state:new(),
-    mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BrokerId)),
-    mqttgw_state:put(BrokerId, make_sample_broker_session()),
-
-    %% 1 - authn: enabled, authz: disabled
-    %% Anyone can connect in any mode when authz is dissabled
-    State1 =
-        broker_initial_state(
-            make_sample_config(
-                {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
-                disabled,
-                disabled,
-                BrokerId),
-            Time),
-    [begin
-        [begin
-            ClientId =
-                v1_make_sample_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, ?VER_1),
-            Result = handle_connect(ClientId, Password, CleanSession, #{}, State1),
-            {Desc, ?_assertEqual(ok, Result)}
-        end || Mode <- Modes]
-    end || {Desc, Modes, Aud, Password, _Expect} <- Test],
-
-    %% 2 - authn: enabled, authz: enabled
-    %% User accounts can connect only in 'default' mode
-    %% Service accounts can connect in any mode
-    State2 =
-        broker_initial_state(
-            make_sample_config(
-                {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
-                {enabled, AuthzConfig},
-                disabled,
-                BrokerId),
-            Time),
-    [begin
-        [begin
-            ClientId =
-                v1_make_sample_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, ?VER_1),
-            Result = handle_connect(ClientId, Password, CleanSession, #{}, State2),
-            {Desc, ?_assertEqual(Expect, Result)}
-        end || Mode <- Modes]
-    end || {Desc, Modes, Aud, Password, Expect} <- Test],
-
-    %% 3 - authn: disabled, authz: enabled
-    State3 =
-        broker_initial_state(
-            make_sample_config(
-                disabled,
-                {enabled, AuthzConfig},
-                disabled,
-                BrokerId),
-            Time),
-    [begin
-        [begin
-            ClientId =
-                v1_make_sample_client_id(
-                    AgentLabel, AccountLabel, Aud, Mode, ?VER_1),
-            Result = handle_connect(ClientId, Password, CleanSession, #{}, State3),
-            {Desc, ?_assertEqual(Expect, Result)}
-        end || Mode <- Modes]
-    end || {Desc, Modes, Aud, Password, Expect} <- Test].
-% <<<<< END
-
 prop_onconnect() ->
     ?FORALL(
         {Mode, SubscriberId, Password},
@@ -2600,22 +2210,13 @@ prop_onpublish() ->
                 Time),
             ExpectedBrokerL =
                 [ {<<"broker_agent_id">>, mqttgw_id:format_agent_id(BrokerId)},
-                  %% TODO[1]: remove v1
-                  {<<"broker_agent_label">>, mqttgw_id:label(BrokerId)},
-                  {<<"broker_account_label">>, mqttgw_id:account_label(BrokerId)},
-                  {<<"broker_audience">>, mqttgw_id:audience(BrokerId)},
-                  %%
                   {<<"broker_processing_timestamp">>, TimeB},
                   {<<"broker_initial_processing_timestamp">>, TimeB} ],
             ExpectedConnectionL =
                 [ {<<"connection_version">>, ?VER_2},
                   {<<"connection_mode">>, format_connection_mode(Mode)} ],
             ExpectedAuthnUserL =
-                [ {<<"agent_id">>, mqttgw_id:format_agent_id(AgentId)},
-                  %% TODO[1]: remove v1
-                  {<<"agent_label">>, AgentLabel},
-                  {<<"account_label">>, AccountLabel},
-                  {<<"audience">>, Audience} ],
+                [ {<<"agent_id">>, mqttgw_id:format_agent_id(AgentId)} ],
             ExpectedAuthnProperties = #{p_user_property => [?TYPE_TEST_PROP | ExpectedAuthnUserL]},
             ExpectedTimeL = [
                 {<<"local_initial_timediff">>, TimeDiffB}],
@@ -3003,11 +2604,7 @@ prop_ondeliver() ->
                 label := AccountLabel,
                 audience := Audience}} = AgentId = parse_agent_id(element(2, SubscriberId)),
             ExpectedAuthnUserL =
-                #{<<"agent_id">> => mqttgw_id:format_agent_id(AgentId),
-                  %% TODO[1]: remove v1
-                  <<"agent_label">> => AgentLabel,
-                  <<"account_label">> => AccountLabel,
-                  <<"audience">> => Audience},
+                #{<<"agent_id">> => mqttgw_id:format_agent_id(AgentId)},
             ExpectedBrokerL =
                 #{<<"broker_timestamp">> => integer_to_binary(Time)},
             ExpectedSessionTrackingL =
@@ -3202,19 +2799,6 @@ make_sample_agent_id(AgentLabel, AccountLabel, Audience) ->
         #{label => AccountLabel,
           audience => Audience}}.
 
-%% TODO[1]: remove v1
-v1_make_sample_client_id(AgentLabel, AccountLabel, Audience, Mode, Version) ->
-    AgentId = <<AgentLabel/binary, $., AccountLabel/binary, $., Audience/binary>>,
-    ModeLabel =
-        case Mode of
-            default -> <<Version/binary, "/agents">>;
-            service -> <<Version/binary, "/service-agents">>;
-            observer -> <<Version/binary, "/observer-agents">>;
-            bridge -> <<Version/binary, "/bridge-agents">>
-        end,
-
-    <<ModeLabel/binary, $/, AgentId/binary>>.
-
 -spec make_sample_connection_properties(connection_mode()) -> map().
 make_sample_connection_properties(Mode) ->
     UserProperties =
@@ -3242,11 +2826,7 @@ make_sample_message_bridgecompat(Mode, Time, Payload, Properties) ->
 
 update_sample_message_properties(Properties) ->
     DefaultSampleUserProperties =
-        #{<<"agent_id">> => <<"test-1.john-doe.example.org">>,
-          %% TODO[1]: remove v1
-          <<"agent_label">> => <<"test-1">>,
-          <<"account_label">> => <<"john-doe">>,
-          <<"audience">> => <<"example.org">>},
+        #{<<"agent_id">> => <<"test-1.john-doe.example.org">>},
 
     UserProperties0 = maps:from_list(maps:get(p_user_property, Properties, [])),
     UserProperties1 = maps:merge(DefaultSampleUserProperties, UserProperties0),
