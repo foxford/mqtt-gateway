@@ -31,7 +31,7 @@ function FILE_FROM_GITHUB() {
 set -ex
 
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/ca-${NAMESPACE}.crt"
-FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/docs.sh"
+FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/s3-docs.sh"
 FILE_FROM_GITHUB "deploy" "${SOURCE}/deploy/travis-run.sh"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}-headless.yaml"
@@ -39,4 +39,4 @@ FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJE
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-environment.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-loadbalancer.yaml"
 
-chmod u+x deploy/{docs.sh,travis-run.sh}
+chmod u+x deploy/{s3-docs.sh,travis-run.sh}

@@ -4,7 +4,7 @@ otp_release:
 addons:
   apt:
     packages:
-      - lftp
+      - awscli
 services: docker
 git:
   depth: 1
@@ -17,7 +17,7 @@ jobs:
     - stage: check
       name: Docs
       install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers 0.2.3 --force
-      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/docs.sh
+      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/s3-docs.sh
     - stage: deploy
       name: Kubernetes
       script: ./deploy.init.sh && ./deploy/travis-run.sh
