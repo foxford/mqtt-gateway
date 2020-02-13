@@ -9,7 +9,7 @@
 %% API
 %% =============================================================================
 
--spec read_config() -> disabled | {enabled, mqttgw_authn:account_id()}.
+-spec read_config() -> disabled | enabled.
 read_config() ->
     case os:getenv("APP_STAT_ENABLED", "1") of
         "0" ->

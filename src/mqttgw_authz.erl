@@ -16,7 +16,7 @@
 %% API
 %% =============================================================================
 
--spec read_config() -> disabled | {enabled, mqttgw_authn:account_id(), config()}.
+-spec read_config() -> disabled | {enabled, config()}.
 read_config() ->
     case os:getenv("APP_AUTHZ_ENABLED", "1") of
         "0" ->
@@ -29,7 +29,7 @@ read_config() ->
             {enabled, Config}
     end.
 
--spec read_config_file(toml:config()) ->config().
+-spec read_config_file(toml:config()) -> config().
 read_config_file(TomlConfig) ->
     toml:folds(
         ["authz"],
