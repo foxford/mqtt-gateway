@@ -292,14 +292,14 @@ verify_connect_clean_session_constraint(IsRetain, _Mode) ->
 
 -spec handle_disconnect(binary(), mqttgw_id:agent_id(), state()) -> ok.
 handle_disconnect(ClientId, AgentId, State) ->
-    handle_disconnect_authz_config(ClientId, AgentId, State).
+    handle_disconnect_dynsub_config(ClientId, AgentId, State).
 
--spec handle_disconnect_authz_config(binary(), mqttgw_id:agent_id(), state()) -> ok.
-handle_disconnect_authz_config(ClientId, AgentId, State) ->
-    case State#state.config#config.authz of
+-spec handle_disconnect_dynsub_config(binary(), mqttgw_id:agent_id(), state()) -> ok.
+handle_disconnect_dynsub_config(ClientId, AgentId, State) ->
+    case State#state.config#config.dynsub of
         disabled ->
             handle_disconnect_stat_config(AgentId, State);
-        {enabled, _Config} ->
+        enabled ->
             #state{
                 time=Time,
                 unique_id=UniqueId,
@@ -471,10 +471,15 @@ handle_publish_authz(Topic, Message, AgentId, State) ->
 -spec handle_publish_authz_config(topic(), message(), mqttgw_id:agent_id(), state())
     -> ok | {error, error()}.
 handle_publish_authz_config(Topic, Message, AgentId, State) ->
-    case State#state.config#config.authz of
-        disabled ->
+    case {State#state.config#config.authz, State#state.config#config.dynsub} of
+        {disabled, disabled} ->
             ok;
-        {enabled, _Config} ->
+        {disabled, enabled} ->
+            BrokerId = State#state.config#config.id,
+            handle_publish_authz_broker_request(
+                Topic, Message, mqttgw_id:format_account_id(BrokerId),
+                mqttgw_id:format_agent_id(BrokerId), BrokerId, AgentId, State);
+        {{enabled, _Config}, _} ->
             BrokerId = State#state.config#config.id,
             handle_publish_authz_topic(
                 Topic, Message, BrokerId, AgentId, State)
@@ -486,9 +491,12 @@ handle_publish_authz_config(Topic, Message, AgentId, State) ->
 handle_publish_authz_topic(Topic, Message, BrokerId, AgentId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
-    try verify_publish_topic(
-        Topic, mqttgw_id:format_account_id(AgentId), mqttgw_id:format_agent_id(AgentId), Mode) of
-        _ ->
+    try {verify_publish_topic(
+           Topic, mqttgw_id:format_account_id(AgentId), mqttgw_id:format_agent_id(AgentId), Mode),
+         State#state.config#config.dynsub} of
+        {_, disabled} ->
+            ok;
+        {_, _} ->
             handle_publish_authz_broker_request(
                 Topic, Message, mqttgw_id:format_account_id(BrokerId),
                 mqttgw_id:format_agent_id(BrokerId), BrokerId, AgentId, State)
@@ -534,7 +542,7 @@ handle_publish_authz_broker_request(
 %            method := <<"subscription.create">>,
 %            correlation_data := CorrData,
 %            response_topic := RespTopic}} ->
-%                handle_publish_authz_broker_dynsub_create_request(
+%                handle_publish_broker_dynsub_create_request(
 %                    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
 %         {service,
 %          #{<<"object">> := Object,
@@ -543,7 +551,7 @@ handle_publish_authz_broker_request(
 %            method := <<"subscription.delete">>,
 %            correlation_data := CorrData,
 %            response_topic := RespTopic}} ->
-%                handle_publish_authz_broker_dynsub_delete_request(
+%                handle_publish_broker_dynsub_delete_request(
 %                    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
 %         _ ->
 %             error_logger:error_msg(
@@ -561,11 +569,11 @@ handle_publish_authz_broker_request(
 %             {error, #{reason_code => impl_specific_error}}
 %     end.
 
-% -spec handle_publish_authz_broker_dynsub_create_request(
+% -spec handle_publish_broker_dynsub_create_request(
 %     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
 %     binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
 %     -> ok | {error, error()}.
-% handle_publish_authz_broker_dynsub_create_request(
+% handle_publish_broker_dynsub_create_request(
 %     Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
 %     #state{
 %         time=Time,
@@ -589,11 +597,11 @@ handle_publish_authz_broker_request(
 %         UniqueId, SessionPairId, Time),
 %     ok.
 
-% -spec handle_publish_authz_broker_dynsub_delete_request(
+% -spec handle_publish_broker_dynsub_delete_request(
 %     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
 %     binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
 %     -> ok | {error, error()}.
-% handle_publish_authz_broker_dynsub_delete_request(
+% handle_publish_broker_dynsub_delete_request(
 %     Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
 %     #state{
 %         time=Time,
@@ -937,12 +945,12 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% The only reason we need them now is the local state.
 %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
 %% https://github.com/vernemq/vernemq/issues/1326
--spec handle_deliver_authz_config(topic(), message(), mqttgw_id:agent_id(), state()) -> message().
-handle_deliver_authz_config(Topic, Message, RecvId, State) ->
-    case State#state.config#config.authz of
+-spec handle_deliver_dynsub_config(topic(), message(), mqttgw_id:agent_id(), state()) -> message().
+handle_deliver_dynsub_config(Topic, Message, RecvId, State) ->
+    case State#state.config#config.dynsub of
         disabled ->
             Message;
-        {enabled, _Config} ->
+        enabled ->
             BrokerId = State#state.config#config.id,
             handle_deliver_authz_broker_request(
                 Topic, Message, BrokerId, RecvId, State)
@@ -985,7 +993,7 @@ handle_deliver_authz_broker_request_payload(
            sent_by := AgentId}} ->
                 case catch parse_agent_id(Subject) of
                     RecvId ->
-                        handle_deliver_authz_broker_dynsub_create_request(
+                        handle_deliver_broker_dynsub_create_request(
                             Version, App, Object, Subject,
                             CorrData, BrokerId, AgentId, State);
                     _ ->
@@ -1002,7 +1010,7 @@ handle_deliver_authz_broker_request_payload(
            sent_by := AgentId}} ->
                 case catch parse_agent_id(Subject) of
                     RecvId ->
-                        handle_deliver_authz_broker_dynsub_delete_request(
+                        handle_deliver_broker_dynsub_delete_request(
                             Version, App, Object, Subject,
                             CorrData, BrokerId, AgentId, State);
                     _ ->
@@ -1026,11 +1034,11 @@ handle_deliver_authz_broker_request_payload(
             create_dynsub_error_response()
     end.
 
--spec handle_deliver_authz_broker_dynsub_create_request(
+-spec handle_deliver_broker_dynsub_create_request(
     binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
     binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
     -> message().
-handle_deliver_authz_broker_dynsub_create_request(
+handle_deliver_broker_dynsub_create_request(
     Version, App, Object, Subject, CorrData, BrokerId, AgentId, State) ->
     #state{
         time=Time,
@@ -1054,11 +1062,11 @@ handle_deliver_authz_broker_dynsub_create_request(
         CorrData, BrokerId, SenderConn, AgentId,
         UniqueId, SessionPairId, Time).
 
--spec handle_deliver_authz_broker_dynsub_delete_request(
+-spec handle_deliver_broker_dynsub_delete_request(
     binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
     binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
     -> message().
-handle_deliver_authz_broker_dynsub_delete_request(
+handle_deliver_broker_dynsub_delete_request(
     Version, App, Object, Subject, CorrData, BrokerId, AgentId, State) ->
     #state{
         time=Time,
@@ -1135,8 +1143,8 @@ parse_deliver_broker_request_properties(Properties) ->
 handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
-    %% TODO: remove the local state, remove "handle_deliver_authz_config"
-    try handle_deliver_authz_config(
+    %% TODO: remove the local state, remove "handle_deliver_dynsub_config"
+    try handle_deliver_dynsub_config(
             Topic,
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(InputPayload))),
@@ -1179,8 +1187,8 @@ handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
     % InputMessage = #message{payload = InputPayload, properties = InputProperties},
     % handle_deliver_mqtt5_changes(Mode, InputMessage).
 
-    %% TODO: remove the local state, remove "handle_deliver_authz_config"
-    try handle_deliver_authz_config(
+    %% TODO: remove the local state, remove "handle_deliver_dynsub_config"
+    try handle_deliver_dynsub_config(
             Topic,
             handle_mqtt3_envelope_properties(
                 validate_envelope(parse_envelope(InputPayload))),
@@ -1367,12 +1375,12 @@ handle_broker_start_success() ->
 
 -spec handle_broker_stop(state()) -> ok.
 handle_broker_stop(State) ->
-    handle_broker_stop_authz_config(State).
+    handle_broker_stop_dynsub_config(State).
 
--spec handle_broker_stop_authz_config(state()) -> ok.
-handle_broker_stop_authz_config(State) ->
-    case State#state.config#config.authz of
-        {enabled, _Config} ->
+-spec handle_broker_stop_dynsub_config(state()) -> ok.
+handle_broker_stop_dynsub_config(State) ->
+    case State#state.config#config.dynsub of
+        enabled ->
             #state{
                 time=Time,
                 unique_id=UniqueId,
