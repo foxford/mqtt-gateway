@@ -323,8 +323,7 @@ handle_disconnect_stat_config(AgentId, State) ->
                 unique_id=UniqueId,
                 session=#session{
                     id=SessionId,
-                    parent_id=ParentSessionId,
-                    created_at=Ts},
+                    parent_id=ParentSessionId},
                 config=#config{
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
@@ -333,7 +332,7 @@ handle_disconnect_stat_config(AgentId, State) ->
                 #{id => mqttgw_id:format_agent_id(AgentId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
+                  {<<"timestamp">>, integer_to_binary(Time)} ],
                 ?BROKER_CONNECTION,
                 BrokerId,
                 AgentId,
@@ -1395,8 +1394,7 @@ handle_broker_stop_stat_config(State) ->
                 unique_id=UniqueId,
                 session=#session{
                     id=SessionId,
-                    parent_id=ParentSessionId,
-                    created_at=Ts},
+                    parent_id=ParentSessionId},
                 config=#config{
                     id=BrokerId}} = State,
             SessionPairId = format_session_id(SessionId, ParentSessionId),
@@ -1405,7 +1403,7 @@ handle_broker_stop_stat_config(State) ->
                 #{id => mqttgw_id:format_agent_id(BrokerId)},
                 [ {<<"type">>, <<"event">>},
                   {<<"label">>, <<"agent.leave">>},
-                  {<<"timestamp">>, integer_to_binary(Ts)} ],
+                  {<<"timestamp">>, integer_to_binary(Time)} ],
                 ?BROKER_CONNECTION,
                 BrokerId,
                 BrokerId,
