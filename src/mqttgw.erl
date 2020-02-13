@@ -70,9 +70,10 @@
 
 -record(config, {
     id      :: mqttgw_id:agent_id(),
-    authn   :: mqttgw_authn:config(),
-    authz   :: mqttgw_authz:config(),
-    stat    :: mqttgw_stat:config()
+    authn   :: disabled | {enabled, mqttgw_authn:config()},
+    authz   :: disabled | {enabled, mqttgw_authz:config()},
+    dynsub  :: disabled | enabled,
+    stat    :: disabled | enabled
 }).
 -type config() :: #config{}.
 
@@ -1433,6 +1434,7 @@ start() ->
             id=BrokerId,
             authn=mqttgw_authn:read_config(),
             authz=mqttgw_authz:read_config(),
+            dynsub=mqttgw_dynsub:read_config(),
             stat=mqttgw_stat:read_config()},
     mqttgw_state:put(config, Config),
 
@@ -2053,12 +2055,12 @@ prop_onconnect() ->
             Time = 0,
             BrokerId = make_sample_broker_id(),
             Conn = element(2, SubscriberId),
-            Config = make_sample_config(disabled, disabled, disabled),
+            Config = make_sample_config(disabled, disabled),
             State = broker_initial_state(Config, Time),
 
             %% NOTE: we use it to read the broker config and store agent's initial state
             mqttgw_state:new(),
-            mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BrokerId)),
+            mqttgw_state:put(config, make_sample_config(disabled, disabled, BrokerId)),
             mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
             Props = make_sample_connection_properties(Mode),
@@ -2099,7 +2101,7 @@ authz_onconnect_test_() ->
 
     %% NOTE: we use it to read the broker config and store agent's initial state
     mqttgw_state:new(),
-    mqttgw_state:put(config, make_sample_config(disabled, disabled, disabled, BrokerId)),
+    mqttgw_state:put(config, make_sample_config(disabled, disabled, BrokerId)),
     mqttgw_state:put(BrokerId, make_sample_broker_session()),
 
     %% 1 - authn: enabled, authz: disabled
@@ -2108,7 +2110,6 @@ authz_onconnect_test_() ->
         broker_initial_state(
             make_sample_config(
                 {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
-                disabled,
                 disabled,
                 BrokerId),
             Time),
@@ -2129,7 +2130,6 @@ authz_onconnect_test_() ->
             make_sample_config(
                 {enabled, maps:merge(UsrAuthnConfig, SvcAuthnConfig)},
                 {enabled, AuthzConfig},
-                disabled,
                 BrokerId),
             Time),
     [begin
@@ -2147,7 +2147,6 @@ authz_onconnect_test_() ->
             make_sample_config(
                 disabled,
                 {enabled, AuthzConfig},
-                disabled,
                 BrokerId),
             Time),
     [begin
@@ -2203,7 +2202,7 @@ prop_onpublish() ->
                 label := AccountLabel,
                 audience := Audience}} = AgentId = parse_agent_id(element(2, SubscriberId)),
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BrokerId),
+                make_sample_config(disabled, disabled, BrokerId),
                 make_sample_session(Mode),
                 Time),
             ExpectedBrokerL =
@@ -2291,7 +2290,7 @@ prop_onpublish() ->
 %     BrokerId = make_sample_broker_id(),
 %     Time = 0,
 %     State = make_sample_broker_state(
-%         make_sample_config(disabled, disabled, disabled, BrokerId),
+%         make_sample_config(disabled, disabled, BrokerId),
 %         make_sample_session(bridge),
 %         Time),
 
@@ -2318,7 +2317,7 @@ authz_onpublish_test_() ->
     BrokerId = make_sample_broker_id(<<"aud">>),
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, {enabled, ignore}, disabled, BrokerId),
+            make_sample_config(disabled, {enabled, ignore}, BrokerId),
             make_sample_session(Mode),
             Time)
     end,
@@ -2404,7 +2403,7 @@ message_properties_required_test_() ->
         make_sample_agent_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>),
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, disabled, disabled, BrokerId),
+            make_sample_config(disabled, disabled, BrokerId),
             make_sample_session(Mode),
             Time)
     end,
@@ -2497,7 +2496,7 @@ message_properties_optional_test_() ->
         make_sample_agent_id(<<"foo">>, <<"bar">>, <<"aud.example.org">>),
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, disabled, disabled, BrokerId),
+            make_sample_config(disabled, disabled, BrokerId),
             make_sample_session(Mode),
             Time1)
     end,
@@ -2616,7 +2615,7 @@ prop_ondeliver() ->
             InputPayload = jsx:encode(#{payload => Payload, properties => InputProperties}),
 
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BrokerId),
+                make_sample_config(disabled, disabled, BrokerId),
                 make_sample_session(Mode),
                 Time),
 
@@ -2648,7 +2647,7 @@ prop_onsubscribe() ->
             BrokerId = make_sample_broker_id(),
             AgentId = parse_agent_id(element(2, SubscriberId)),
             State = make_sample_broker_state(
-                make_sample_config(disabled, disabled, disabled, BrokerId),
+                make_sample_config(disabled, disabled, BrokerId),
                 make_sample_session(Mode),
                 Time),
 
@@ -2679,7 +2678,7 @@ authz_onsubscribe_test_() ->
     end,
     State = fun(Mode) ->
         make_sample_broker_state(
-            make_sample_config(disabled, {enabled, ignore}, disabled, BrokerId),
+            make_sample_config(disabled, {enabled, ignore}, BrokerId),
             make_sample_session(Mode),
             Time)
     end,
@@ -2729,15 +2728,16 @@ make_sample_password(AccountLabel, Audience, Issuer) ->
     #{password => Token,
       config => Config}.
 
-make_sample_config(Authn, Authz, Stat) ->
-    make_sample_config(Authn, Authz, Stat, make_sample_broker_id()).
+make_sample_config(Authn, Authz) ->
+    make_sample_config(Authn, Authz, make_sample_broker_id()).
 
-make_sample_config(Authn, Authz, Stat, AgentId) ->
+make_sample_config(Authn, Authz, AgentId) ->
     #config{
         id=AgentId,
         authn=Authn,
         authz=Authz,
-        stat=Stat}.
+        dynsub=disabled,
+        stat=disabled}.
 
 make_sample_session(Mode) ->
     #session{

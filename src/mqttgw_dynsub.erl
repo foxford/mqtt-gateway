@@ -2,6 +2,7 @@
 
 %% API
 -export([
+    read_config/0,
     list/1
 ]).
 
@@ -15,6 +16,16 @@
 %% =============================================================================
 %% API
 %% =============================================================================
+
+-spec read_config() -> disabled | enabled.
+read_config() ->
+    case os:getenv("APP_DYNSUB_ENABLED", "1") of
+        "0" ->
+            error_logger:info_msg("[CONFIG] Dynamic subscriptions are disabled~n"),
+            disabled;
+        _ ->
+            enabled
+    end.
 
 -spec list(subject()) -> [data()].
 list(Subject) ->
