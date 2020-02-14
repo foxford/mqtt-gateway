@@ -1103,7 +1103,7 @@ create_dynsub_response(CorrData, BrokerId, SenderConn, SenderId, UniqueId, Sessi
                     #{p_correlation_data => CorrData,
                         p_user_property =>
                         [ {<<"type">>, <<"response">>},
-                          {<<"status">>, <<"200">>} ]},
+                          {<<"status">>, <<"202">>} ]},
                     SenderConn,
                     SenderId,
                     BrokerId,
@@ -1826,7 +1826,7 @@ erase_dynsubs(BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
 %                             #{p_correlation_data => CorrData,
 %                               p_user_property =>
 %                                 [ {<<"type">>, <<"response">>},
-%                                   {<<"status">>, <<"200">>} ]},
+%                                   {<<"status">>, <<"202">>} ]},
 %                             SenderConn,
 %                             SenderId,
 %                             BrokerId,
