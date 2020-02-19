@@ -22,5 +22,9 @@ erl_crash.dump
 *.beam
 *.plt
 *.d
+
+# Project
 App.toml
 deploy
+/docs/book
+.vscode
