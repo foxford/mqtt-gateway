@@ -26,7 +26,7 @@ execute following shell commands within different terminal tabs:
 
 ```bash
 ## To build container locally
-docker build -t sandbox/mqtt-gateway -f docker/Dockerfile .
+docker build -t netology-group/mqtt-gateway -f docker/Dockerfile .
 ## Running a container with VerneMQ and the plugin
 docker run -ti --rm \
     -e APP_AUTHN_ENABLED=0 \
@@ -36,16 +36,16 @@ docker run -ti --rm \
     -e APP_ACCOUNT_ID=mqtt-gateway.svc.example.org \
     -e APP_AGENT_LABEL=alpha \
     -p 1883:1883 \
-    sandbox/mqtt-gateway
+    netology-group/mqtt-gateway
 
 ## Subscribing to messages
-mosquitto_sub -h $(docker-machine ip) \
+mosquitto_sub \
     -i 'test-sub.john-doe.usr.example.net' \
     -u 'v2::default' \
     -t 'foo' | jq '.'
 
 ## Publishing a message
-mosquitto_pub -V 5 -h $(docker-machine ip) \
+mosquitto_pub -V 5 \
     -i 'test-pub.john-doe.usr.example.net' \
     -t 'foo' \
     -D connect user-property 'connection_version' 'v2' \
@@ -67,12 +67,12 @@ docker run -ti --rm \
     -v "$(pwd)/data/keys/svc.public_key.pem.sample:/app/data/keys/svc.public_key.pem.sample" \
     -e APP_CONFIG='/app/App.toml' \
     -p 1883:1883 \
-    sandbox/mqtt-gateway
+    netology-group/mqtt-gateway
 
 ## Subscribing to messages
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJzdmMuZXhhbXBsZS5vcmciLCJpc3MiOiJzdmMuZXhhbXBsZS5vcmciLCJzdWIiOiJhcHAifQ.zevlp8zOKY12Wjm8GBpdF5vvbsMRYYEutJelODi_Fj0yRI8pHk2xTkVtM8Cl5KcxOtJtHIshgqsWoUxrTvrdvA' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub \
         -i "test.${APP}" \
         -P "${ACCESS_TOKEN}" \
         -u 'v2::service' \
@@ -82,7 +82,7 @@ APP='app.svc.example.org' \
 ACCESS_TOKEN='eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ1c3IuZXhhbXBsZS5uZXQiLCJpc3MiOiJpYW0uc3ZjLmV4YW1wbGUubmV0Iiwic3ViIjoiam9obi1kb2UifQ.CjwC4qMT9nGt9oJALiGS6FtpZy3-nhX3L3HyM34Q1sL0P73-7X111A56UlbpQmuu5tGte9-Iu0iMJEYlD5XuGA' \
 USER='john-doe.usr.example.net' \
 APP='app.svc.example.org' \
-    && mosquitto_pub -V 5 -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 \
         -i "test.${USER}" \
         -P "${ACCESS_TOKEN}" \
         -u 'ignore' \
@@ -107,12 +107,12 @@ docker run -ti --rm \
     -e APP_AUTHZ_ENABLED=0 \
     -e APP_DYNSUB_ENABLED=0 \
     -p 1883:1883 \
-    sandbox/mqtt-gateway
+    netology-group/mqtt-gateway
 
 ## Subscribing to messages
 OBSERVER='devops.svc.example.org' \
 BROKER='mqtt-gateway.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub \
         -i "test-1.${OBSERVER}" \
         -t "apps/${BROKER}/api/v2/audiences/+/events" \
         -P "${ACCESS_TOKEN}" \
@@ -120,7 +120,7 @@ BROKER='mqtt-gateway.svc.example.org' \
         | jq '.'
 
 ## Publishing a message
-mosquitto_pub -V 5 -h $(docker-machine ip) \
+mosquitto_pub -V 5 \
     -i 'test-pub.john-doe.usr.example.net' \
     -t 'foo' \
     -D connect user-property 'connection_version' 'v2' \
@@ -142,7 +142,7 @@ docker run -ti --rm \
     -e APP_AUTHN_ENABLED=0 \
     -e APP_STAT_ENABLED=0 \
     -p 1883:1883 \
-    sandbox/mqtt-gateway
+    netology-group/mqtt-gateway
 
 # NOTE: will only be possible with resolving of the 'issue:1326'.
 # https://github.com/vernemq/vernemq/issues/1326
@@ -151,7 +151,7 @@ docker run -ti --rm \
 # OBSERVER='devops.svc.example.org' \
 # USER='john.usr.example.net' \
 # APP='app.svc.example.org' \
-#     && mosquitto_sub -V 5 -h $(docker-machine ip) \
+#     && mosquitto_sub -V 5 \
 #         -i "test-1.${OBSERVER}" \
 #         -t "agents/test.${USER}/api/v1/in/${APP}" \
 #         -D connect user-property 'connection_version' 'v2' \
@@ -161,7 +161,7 @@ docker run -ti --rm \
 ## Subscribing to the topic of user's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub \
         -i "test.${USER}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" \
         -u 'v2::default' \
@@ -170,7 +170,7 @@ APP='app.svc.example.org' \
 ## Subscribing to the topic of app's incoming multicast messages
 OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
-    && mosquitto_sub -h $(docker-machine ip) \
+    && mosquitto_sub \
         -i "test-2.${OBSERVER}" \
         -u 'v2::observer' \
         -t "agents/+/api/v1/out/${APP}" | jq '.'
@@ -182,7 +182,7 @@ APP='app.svc.example.org' \
 # APP='app.svc.example.org' \
 # USER='john.usr.example.net' \
 # BROKER='mqtt-gateway.svc.example.org' \
-#     && mosquitto_pub -V 5 -h $(docker-machine ip) \
+#     && mosquitto_pub -V 5 \
 #         -i "test.${APP}" \
 #         -t "agents/test.${APP}/api/v2/out/${BROKER}" \
 #         -D connect user-property 'connection_version' 'v2' \
@@ -197,7 +197,7 @@ APP='app.svc.example.org' \
 # Note that the agent must be subscribed to the in-topic: "agents/test.${USER}/api/v1/in/${APP}"
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
-    && mosquitto_pub -V 5 -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 \
         -i "test.${APP}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" \
         -D connect user-property 'connection_version' 'v2' \
@@ -210,7 +210,7 @@ USER='john.usr.example.net' \
 
 ## Publishing an event
 APP='app.svc.example.org' \
-    && mosquitto_pub -V 5 -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 \
         -i "test.${APP}" \
         -t "apps/${APP}/api/v1/rooms/ROOM_ID/events" \
         -D connect user-property 'connection_version' 'v2' \
@@ -226,7 +226,7 @@ APP='app.svc.example.org' \
 # APP='app.svc.example.org' \
 # USER='john.usr.example.net' \
 # BROKER='mqtt-gateway.svc.example.org' \
-#     && mosquitto_pub -V 5 -h $(docker-machine ip) \
+#     && mosquitto_pub -V 5 \
 #         -i "test.${APP}" \
 #         -t "agents/test.${APP}/api/v2/out/${BROKER}" \
 #         -D connect user-property 'connection_version' 'v2' \
@@ -240,7 +240,7 @@ APP='app.svc.example.org' \
 ## Deleting the dynamic subscription
 APP='app.svc.example.org' \
 USER='john.usr.example.net' \
-    && mosquitto_pub -V 5 -h $(docker-machine ip) \
+    && mosquitto_pub -V 5 \
         -i "test.${APP}" \
         -t "agents/test.${USER}/api/v1/in/${APP}" \
         -D connect user-property 'connection_version' 'v2' \

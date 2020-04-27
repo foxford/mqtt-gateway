@@ -3,9 +3,6 @@
 ## -----------------------------------------------------------------------------
 FROM erlang:21-alpine as build-stage
 
-WORKDIR "/build"
-COPY . .
-
 RUN set -xe \
     && echo "http://dl-cdn.alpinelinux.org/alpine/v3.9/main" >> /etc/apk/repositories \
     && apk add --update \
@@ -14,8 +11,11 @@ RUN set -xe \
         curl \
         perl \
         git \
-        make \
-    && make app && make rel
+        make
+
+WORKDIR "/build"
+COPY . .
+RUN make app && make rel
 
 ## -----------------------------------------------------------------------------
 ## App
@@ -29,5 +29,6 @@ RUN set -xe \
     && apk add --update \
         libcrypto1.1
 
-COPY --from=build-stage "/build/_rel/mqttgw" "/app/"
-COPY "docker/vernemq.conf" "/etc/vernemq/vernemq.conf"
+RUN mkdir /etc/vernemq
+COPY --from=build-stage "/build/_rel/mqttgw" "/app/mqttgw/"
+COPY "docker/vernemq.conf" "/app/etc/vernemq.conf"
