@@ -16,7 +16,7 @@ jobs:
       script: make check EUNIT_OPTS=verbose
     - stage: check
       name: Docs
-      install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers 0.2.3 --force
+      install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers ^0.2
       script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/s3-docs.sh
     - stage: deploy
       name: Kubernetes
