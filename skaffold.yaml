@@ -19,3 +19,4 @@ deploy:
     - deploy/k8s/mqtt-gateway-environment.yaml
     - deploy/k8s/mqtt-gateway-headless.yaml
     - deploy/k8s/mqtt-gateway-loadbalancer.yaml
+    - deploy/k8s/mqtt-gateway-servicemonitor.yaml

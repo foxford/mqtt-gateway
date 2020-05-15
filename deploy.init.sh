@@ -38,5 +38,6 @@ FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/_/${PROJECT}-headles
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-config.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-environment.yaml"
 FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-loadbalancer.yaml"
+FILE_FROM_GITHUB "deploy/k8s" "${SOURCE}/apps/${PROJECT}/ns/${NAMESPACE}/${PROJECT}-servicemonitor.yaml"
 
 chmod u+x deploy/{s3-docs.sh,travis-run.sh}
