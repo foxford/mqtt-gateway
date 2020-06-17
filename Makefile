@@ -8,10 +8,11 @@ define PROJECT_ENV
 			{mqttgw, auth_on_register_m5, 6, []},
 			{mqttgw, auth_on_publish, 6, []},
 			{mqttgw, auth_on_publish_m5, 7, []},
-			{mqttgw, on_deliver, 4, []},
-			{mqttgw, on_deliver_m5, 5, []},
+			{mqttgw, on_deliver, 6, []},
+			{mqttgw, on_deliver_m5, 7, []},
 			{mqttgw, auth_on_subscribe, 3, []},
 			{mqttgw, auth_on_subscribe_m5, 4, []},
+			{mqttgw, on_topic_unsubscribed, 2, []},
 			{mqttgw, on_client_offline, 1, []},
 			{mqttgw, on_client_gone, 1, []}
 		]}
