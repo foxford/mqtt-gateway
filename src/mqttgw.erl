@@ -8,6 +8,7 @@
 -behaviour(on_deliver_m5_hook).
 -behaviour(auth_on_subscribe_hook).
 -behaviour(auth_on_subscribe_m5_hook).
+-behaviour(on_topic_unsubscribed_hook).
 -behaviour(on_client_offline_hook).
 -behaviour(on_client_gone_hook).
 
@@ -35,10 +36,11 @@
     auth_on_register_m5/6,
     auth_on_publish/6,
     auth_on_publish_m5/7,
-    on_deliver/4,
-    on_deliver_m5/5,
+    on_deliver/6,
+    on_deliver_m5/7,
     auth_on_subscribe/3,
     auth_on_subscribe_m5/4,
+    on_topic_unsubscribed/2,
     on_client_offline/1,
     on_client_gone/1
 ]).
@@ -1572,7 +1574,7 @@ auth_on_publish_m5(
 
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    Topic, Payload) ->
+    _QoS, Topic, Payload, _IsRetain) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
@@ -1582,7 +1584,7 @@ on_deliver(
 
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    Topic, Payload, Properties) ->
+    _QoS, Topic, Payload, _IsRetain, Properties) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
@@ -1614,6 +1616,14 @@ auth_on_subscribe_m5(
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
     handle_subscribe_authz(Subscriptions, AgentId, State).
+
+on_topic_unsubscribed(
+    {_MountPoint, _Conn} = _SubscriberId,
+    _Topics) ->
+    error_logger:info_msg(
+        "ON_UNSUBSCRIBE_HOOK with parameters ~p, ~p has been called.",
+        [_Conn, _Topics]),
+    ok.
 
 on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
     AgentId = parse_agent_id(Conn),
