@@ -35,8 +35,8 @@
     auth_on_register_m5/6,
     auth_on_publish/6,
     auth_on_publish_m5/7,
-    on_deliver/4,
-    on_deliver_m5/5,
+    on_deliver/6,
+    on_deliver_m5/7,
     auth_on_subscribe/3,
     auth_on_subscribe_m5/4,
     on_client_offline/1,
@@ -1510,7 +1510,7 @@ auth_on_publish_m5(
 
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    Topic, Payload) ->
+    _QoS, Topic, Payload, _IsRetain) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
@@ -1520,7 +1520,7 @@ on_deliver(
 
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    Topic, Payload, Properties) ->
+    _QoS, Topic, Payload, _IsRetain, Properties) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
