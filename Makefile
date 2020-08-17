@@ -24,7 +24,7 @@ DEPS = \
 	jose \
 	uuid
 
-dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git 741655f532ad16bb501d01230c7fb68dbae523d2
+dep_vernemq_dev = git https://github.com/erlio/vernemq_dev.git 6d622aa8c901ae7777433aef2bd049e380c474a6
 dep_toml = git https://github.com/dozzie/toml.git v0.3.0
 dep_jose = git https://github.com/manifest/jose-erlang v0.1.2
 dep_uuid = git https://github.com/okeuday/uuid.git v1.7.5
