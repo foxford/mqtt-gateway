@@ -31,4 +31,4 @@ RUN set -xe \
 
 RUN mkdir /etc/vernemq
 COPY --from=build-stage "/build/_rel/mqttgw" "/app/mqttgw/"
-COPY "docker/vernemq.conf" "/app/etc/vernemq.conf"
+COPY "docker/vernemq.conf" "/vernemq/etc/vernemq.conf"
