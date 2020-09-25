@@ -33,6 +33,7 @@ docker run -ti --rm \
     -e APP_AUTHZ_ENABLED=0 \
     -e APP_DYNSUB_ENABLED=0 \
     -e APP_STAT_ENABLED=0 \
+    -e APP_RATE_LIMIT_ENABLED=0 \
     -e APP_ACCOUNT_ID=mqtt-gateway.svc.example.org \
     -e APP_AGENT_LABEL=alpha \
     -p 1883:1883 \

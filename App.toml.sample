@@ -1,6 +1,10 @@
 id = "mqtt-gateway.svc.example.org"
 agent_label = "alpha"
 
+[rate_limit]
+message_count = 10
+byte_count = 10240
+
 [authn."iam.svc.example.net"]
 audience = ["usr.example.net"]
 algorithm = "ES256"
