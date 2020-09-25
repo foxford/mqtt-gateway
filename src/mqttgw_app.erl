@@ -20,6 +20,7 @@ start(_StartType, _StartArgs) ->
     %% https://github.com/vernemq/vernemq/issues/1326
     mqttgw_dynsubstate:new(),
     %% <<<<< END
+    mqttgw_ratelimitstate:new(),
     mqttgw_sup:start_link().
 
 stop(_State) ->

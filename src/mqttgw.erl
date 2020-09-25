@@ -69,11 +69,12 @@
 -type session() :: #session{}.
 
 -record(config, {
-    id      :: mqttgw_id:agent_id(),
-    authn   :: disabled | {enabled, mqttgw_authn:config()},
-    authz   :: disabled | {enabled, mqttgw_authz:config()},
-    dynsub  :: disabled | enabled,
-    stat    :: disabled | enabled
+    id         :: mqttgw_id:agent_id(),
+    authn      :: disabled | {enabled, mqttgw_authn:config()},
+    authz      :: disabled | {enabled, mqttgw_authz:config()},
+    dynsub     :: disabled | enabled,
+    stat       :: disabled | enabled,
+    rate_limit :: disabled | {enabled, mqttgw_ratelimit:config()}
 }).
 -type config() :: #config{}.
 
@@ -363,6 +364,9 @@ handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, AgentId, St
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
     try verify_publish_constraints(QoS, IsRetain, Mode) of
+        %% Rate-limit agents with mode=default.
+        _ when Mode =:= default ->
+            handle_publish_mqtt3_ratelimits(Topic, InputPayload, AgentId, State);
         _ ->
             handle_publish_mqtt3(Topic, InputPayload, AgentId, State)
     catch
@@ -373,6 +377,33 @@ handle_publish_mqtt3_constraints(Topic, InputPayload, QoS, IsRetain, AgentId, St
                 "exception_type = ~p, exception_reason = ~p",
                 [QoS, IsRetain, mqttgw_id:format_agent_id(AgentId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec handle_publish_mqtt3_ratelimits(topic(), binary(), mqttgw_id:agent_id(), state())
+    -> {ok, list()} | {error, error()}.
+handle_publish_mqtt3_ratelimits(Topic, InputPayload, AgentId, State) ->
+    #state{session=#session{connection=#connection{mode=Mode}}} = State,
+
+    case State#state.config#config.rate_limit of
+        {enabled, Constraints} ->
+            Now = State#state.time,
+            %% 1 second range.
+            RangeStartTime = Now - 1000,
+            Bytes = byte_size(InputPayload),
+            Data = #{bytes => Bytes, time => Now},
+            case mqttgw_ratelimitstate:put(AgentId, Data, RangeStartTime, Constraints) of
+                ok ->
+                    handle_publish_mqtt3(Topic, InputPayload, AgentId, State);
+                {error, Reason} ->
+                    error_logger:error_msg(
+                        "Error on publish: rate limit exceeded "
+                        "for the agent = '~s' using mode = '~s', "
+                        "reason = ~p",
+                        [mqttgw_id:format_agent_id(AgentId), Mode, Reason]),
+                    {error, #{reason_code => impl_specific_error}}
+            end;
+        _ ->
+            handle_publish_mqtt3(Topic, InputPayload, AgentId, State)
     end.
 
 -spec handle_publish_mqtt3(topic(), binary(), mqttgw_id:agent_id(), state())
@@ -412,6 +443,9 @@ handle_publish_mqtt5_constraints(
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
     try verify_publish_constraints(QoS, IsRetain, Mode) of
+        %% Rate-limit agents with mode=default.
+        _ when Mode =:= default ->
+            handle_publish_mqtt5_ratelimits(Topic, InputPayload, InputProperties, AgentId, State);
         _ ->
             handle_publish_mqtt5(Topic, InputPayload, InputProperties, AgentId, State)
     catch
@@ -422,6 +456,33 @@ handle_publish_mqtt5_constraints(
                 "exception_type = ~p, exception_reason = ~p",
                 [QoS, IsRetain, mqttgw_id:format_agent_id(AgentId), Mode, T, R]),
             {error, #{reason_code => impl_specific_error}}
+    end.
+
+-spec handle_publish_mqtt5_ratelimits(topic(), binary(), map(), mqttgw_id:agent_id(), state())
+    -> {ok, map()} | {error, error()}.
+handle_publish_mqtt5_ratelimits(Topic, InputPayload, InputProperties, AgentId, State) ->
+    #state{session=#session{connection=#connection{mode=Mode}}} = State,
+
+    case State#state.config#config.rate_limit of
+        {enabled, Constraints} ->
+            Now = State#state.time,
+            %% 1 second range.
+            RangeStartTime = Now - 1000,
+            Bytes = byte_size(InputPayload),
+            Data = #{bytes => Bytes, time => Now},
+            case mqttgw_ratelimitstate:put(AgentId, Data, RangeStartTime, Constraints) of
+                ok ->
+                    handle_publish_mqtt5(Topic, InputPayload, InputProperties, AgentId, State);
+                {error, Reason} ->
+                    error_logger:error_msg(
+                        "Error on publish: rate limit exceeded "
+                        "for the agent = '~s' using mode = '~s', "
+                        "reason = ~p",
+                        [mqttgw_id:format_agent_id(AgentId), Mode, Reason]),
+                    {error, #{reason_code => impl_specific_error}}
+            end;
+        _ ->
+            handle_publish_mqtt5(Topic, InputPayload, InputProperties, AgentId, State)
     end.
 
 -spec handle_publish_mqtt5(topic(), binary(), map(), mqttgw_id:agent_id(), state())
@@ -1443,7 +1504,8 @@ start() ->
             authn=mqttgw_authn:read_config(),
             authz=mqttgw_authz:read_config(),
             dynsub=mqttgw_dynsub:read_config(),
-            stat=mqttgw_stat:read_config()},
+            stat=mqttgw_stat:read_config(),
+            rate_limit=mqttgw_ratelimit:read_config()},
     mqttgw_state:put(config, Config),
 
     %% Create the broker session
@@ -2745,7 +2807,8 @@ make_sample_config(Authn, Authz, AgentId) ->
         authn=Authn,
         authz=Authz,
         dynsub=disabled,
-        stat=disabled}.
+        stat=disabled,
+        rate_limit=disabled}.
 
 make_sample_session(Mode) ->
     #session{
