@@ -290,31 +290,33 @@ verify_connect_clean_session_constraint(IsRetain, _Mode) ->
     error({bad_retain, IsRetain}).
 
 %% =============================================================================
+%% API: Subscription Topics
+%% =============================================================================
+
+-spec handle_topic_unsubscribed(binary(), on_topic_unsubscribed_hook:maybe_topics(), state()) -> ok.
+handle_topic_unsubscribed(ClientId, Topics, State) when Topics =:= all_topics ->
+    #state{
+        time=Time,
+        unique_id=UniqueId,
+        session=#session{id=SessionId, parent_id=ParentSessionId},
+        config=#config{id=BrokerId}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
+
+    delete_client_dynsubs(
+        ClientId, ?BROKER_CONNECTION,
+        BrokerId, UniqueId, SessionPairId, Time),
+
+    ok;
+handle_topic_unsubscribed(_ClientId, _Topics, _State) ->
+    ok.
+
+%% =============================================================================
 %% API: Disconnect
 %% =============================================================================
 
--spec handle_disconnect(binary(), mqttgw_id:agent_id(), state()) -> ok.
-handle_disconnect(ClientId, AgentId, State) ->
-    handle_disconnect_dynsub_config(ClientId, AgentId, State).
-
--spec handle_disconnect_dynsub_config(binary(), mqttgw_id:agent_id(), state()) -> ok.
-handle_disconnect_dynsub_config(ClientId, AgentId, State) ->
-    case State#state.config#config.dynsub of
-        disabled ->
-            handle_disconnect_stat_config(AgentId, State);
-        enabled ->
-            #state{
-                time=Time,
-                unique_id=UniqueId,
-                session=#session{id=SessionId, parent_id=ParentSessionId},
-                config=#config{id=BrokerId}} = State,
-            SessionPairId = format_session_id(SessionId, ParentSessionId),
-
-            delete_client_dynsubs(
-                ClientId, ?BROKER_CONNECTION,
-                BrokerId, UniqueId, SessionPairId, Time),
-            handle_disconnect_stat_config(AgentId, State)
-    end.
+-spec handle_disconnect(mqttgw_id:agent_id(), state()) -> ok.
+handle_disconnect(AgentId, State) ->
+    handle_disconnect_stat_config(AgentId, State).
 
 -spec handle_disconnect_stat_config(mqttgw_id:agent_id(), state()) -> ok | {error, error()}.
 handle_disconnect_stat_config(AgentId, State) ->
@@ -1438,24 +1440,7 @@ handle_broker_start_success() ->
 
 -spec handle_broker_stop(state()) -> ok.
 handle_broker_stop(State) ->
-    handle_broker_stop_dynsub_config(State).
-
--spec handle_broker_stop_dynsub_config(state()) -> ok.
-handle_broker_stop_dynsub_config(State) ->
-    case State#state.config#config.dynsub of
-        enabled ->
-            #state{
-                time=Time,
-                unique_id=UniqueId,
-                session=#session{id=SessionId, parent_id=ParentSessionId},
-                config=#config{id=BrokerId}} = State,
-            SessionPairId = format_session_id(SessionId, ParentSessionId),
-
-            erase_dynsubs(?BROKER_CONNECTION, BrokerId, UniqueId, SessionPairId, Time),
-            handle_broker_stop_stat_config(State);
-        _ ->
-            handle_broker_stop_stat_config(State)
-    end.
+    handle_broker_stop_stat_config(State).
 
 -spec handle_broker_stop_stat_config(state()) -> ok.
 handle_broker_stop_stat_config(State) ->
@@ -1618,12 +1603,14 @@ auth_on_subscribe_m5(
     handle_subscribe_authz(Subscriptions, AgentId, State).
 
 on_topic_unsubscribed(
-    {_MountPoint, _Conn} = _SubscriberId,
-    _Topics) ->
-    error_logger:info_msg(
-        "ON_UNSUBSCRIBE_HOOK with parameters ~p, ~p has been called.",
-        [_Conn, _Topics]),
-    ok.
+    {_MountPoint, Conn} = _SubscriberId,
+    Topics) ->
+    AgentId = parse_agent_id(Conn),
+    State = broker_state(
+        mqttgw_state:get(config),
+        mqttgw_state:get(AgentId),
+        os:system_time(millisecond)),
+    handle_topic_unsubscribed(Conn, Topics, State).
 
 on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
     AgentId = parse_agent_id(Conn),
@@ -1631,7 +1618,7 @@ on_client_offline({_MountPoint, Conn} = _SubscriberId) ->
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_disconnect(Conn, AgentId, State).
+    handle_disconnect(AgentId, State).
 
 on_client_gone({_MountPoint, Conn} = _SubscriberId) ->
     AgentId = parse_agent_id(Conn),
@@ -1639,7 +1626,7 @@ on_client_gone({_MountPoint, Conn} = _SubscriberId) ->
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_disconnect(Conn, AgentId, State).
+    handle_disconnect(AgentId, State).
 
 %% =============================================================================
 %% Internal functions
@@ -1840,20 +1827,7 @@ delete_dynsub(Subject, Data) ->
     binary(), binary(), non_neg_integer())
     -> ok.
 delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
-    %% TODO: remove the local state
-    %% NOTE: In the case when a dynamic subscription was created for an offline client,
-    %% even though it later connects with 'clean_session=false' flushing subscriptions
-    %% in the internal state of the broker instance,
-    %% the event 'subscription.delete' will be sent.
-    %% START >>>>>
-    %% We read preserved information about the dynamic subscription from a local state
-    %% because the same information in the internal state of the broker is already flushed.
-    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
-    %% https://github.com/vernemq/vernemq/issues/1326
-    DynSubL = mqttgw_dynsubstate:get(Subject),
-    %% <<<<< END
-    %% TODO: uncomment the line bellow
-    % DynSubL = mqttgw_dynsub:list(Subject),
+    DynSubL = mqttgw_dynsub:list(Subject),
 
     %% Send a multicast event to the application
     [send_dynsub_multicast_event(
@@ -1864,14 +1838,6 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
     %% Remove subscriptions
     [delete_dynsub(Subject, Data) || Data  <- DynSubL],
 
-    ok.
-
--spec erase_dynsubs(
-    connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
-    -> ok.
-erase_dynsubs(BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
-    [delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Time)
-     || Subject <- mqttgw_broker:list_connections()],
     ok.
 
 %% TODO: remove the local state
