@@ -41,12 +41,12 @@ filter(L) ->
     lists:flatmap(fun({_, _, S}) ->
         lists:foldl(
             fun
-                ({[<<"apps">>, App, <<"api">>, Ver | Object] = T, _Qos}, Acc) ->
+                ({[<<"apps">>, App, <<"api">>, Ver | Object], _Qos}, Acc) ->
                     Data =
                         #{app => App,
                           object => Object,
                           version => Ver},
-                    [{T, Data} | Acc];
+                    [Data | Acc];
                 (_, Acc) ->
                     Acc
             end,
