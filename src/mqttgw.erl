@@ -1786,15 +1786,6 @@ create_dynsub(Subject, Data) ->
     Topic = authz_subscription_topic(Data),
     mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
 
-    %% TODO: remove the local state
-    %% START >>>>>
-    %% We preserve (duplicate) information about the dynamic subscription to a local state
-    %% to be able to send an 'subscription.delete' event in the future.
-    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
-    %% https://github.com/vernemq/vernemq/issues/1326
-    mqttgw_dynsubstate:put(Subject, Data),
-    %% <<<<< END
-
     error_logger:info_msg(
         "Dynamic subscription: ~p has been created "
         "for the subject = '~s'",
@@ -1806,14 +1797,6 @@ create_dynsub(Subject, Data) ->
 delete_dynsub(Subject, Data) ->
     Topic = authz_subscription_topic(Data),
     mqttgw_broker:unsubscribe(Subject, [Topic]),
-
-    %% TODO: remove the local state
-    %% START >>>>>
-    %% We remove preserved information about the dynamic subscription from a local state.
-    %% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
-    %% https://github.com/vernemq/vernemq/issues/1326
-    mqttgw_dynsubstate:remove(Subject, Data),
-    %% <<<<< END
 
     error_logger:info_msg(
         "Dynamic subscription: ~p has been deleted "
