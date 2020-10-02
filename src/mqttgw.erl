@@ -23,8 +23,8 @@
     handle_publish_mqtt3/4,
     handle_publish_mqtt5/5,
     handle_publish_authz/4,
-    handle_deliver_mqtt3/4,
-    handle_deliver_mqtt5/5,
+    handle_deliver_mqtt3/3,
+    handle_deliver_mqtt5/4,
     handle_subscribe_authz/3
 ]).
 
@@ -575,120 +575,114 @@ handle_publish_authz_topic(Topic, Message, BrokerId, AgentId, State) ->
             {error, #{reason_code => not_authorized}}
     end.
 
-%% TODO: remove the local state
-%% TODO: uncomment the lines bellow
-
 -spec handle_publish_authz_broker_request(
     topic(), message(), binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
     -> ok | {error, error()}.
-% handle_publish_authz_broker_request(
-%     [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
-%     Message, BrokerAccoundId, _BrokerAgentId, BrokerId, AgentId, State) ->
-%         handle_publish_authz_broker_request_payload(Version, Message, BrokerId, AgentId, State);
+handle_publish_authz_broker_request(
+    [<<"agents">>, _, <<"api">>, Version, <<"out">>, BrokerAccoundId],
+    Message, BrokerAccoundId, _BrokerAgentId, BrokerId, AgentId, State) ->
+        handle_publish_authz_broker_request_payload(Version, Message, BrokerId, AgentId, State);
 handle_publish_authz_broker_request(
     _Topic, _Message, _BrokerAccoundId, _BrokerAgentId, _BrokerId, _AgentId, _State) ->
         ok.
 
-%% TODO: remove the local state
-%% TODO: uncomment the lines bellow
+-spec handle_publish_authz_broker_request_payload(
+   binary(), message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
+    -> ok | {error, error()}.
+handle_publish_authz_broker_request_payload(
+    Version, #message{payload = Payload, properties = Properties}, BrokerId, AgentId, State) ->
+    #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
-% -spec handle_publish_authz_broker_request_payload(
-%    binary(), message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-%     -> ok | {error, error()}.
-% handle_publish_authz_broker_request_payload(
-%     Version, #message{payload = Payload, properties = Properties}, BrokerId, AgentId, State) ->
-%     #state{session=#session{connection=#connection{mode=Mode}}} = State,
+    try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
+        {service,
+         #{<<"object">> := Object,
+           <<"subject">> := Subject},
+         #{type := <<"request">>,
+           method := <<"subscription.create">>,
+           correlation_data := CorrData,
+           response_topic := RespTopic}} ->
+               handle_publish_broker_dynsub_create_request(
+                   Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
+        {service,
+         #{<<"object">> := Object,
+           <<"subject">> := Subject},
+         #{type := <<"request">>,
+           method := <<"subscription.delete">>,
+           correlation_data := CorrData,
+           response_topic := RespTopic}} ->
+               handle_publish_broker_dynsub_delete_request(
+                   Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
+        _ ->
+            error_logger:error_msg(
+                "Error on publish: unsupported broker request = ~p with properties = ~p "
+                "from the agent = '~s' using mode = '~s', ",
+                [Payload, Properties, mqttgw_id:format_agent_id(AgentId), Mode]),
+            {error, #{reason_code => impl_specific_error}}
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error on publish: an invalid broker request = ~p with properties = ~p "
+                "from the agent = '~s' using mode = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [Payload, Properties, mqttgw_id:format_agent_id(AgentId), Mode, T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
 
-%     try {Mode, jsx:decode(Payload, [return_maps]), parse_broker_request_properties(Properties)} of
-%         {service,
-%          #{<<"object">> := Object,
-%            <<"subject">> := Subject},
-%          #{type := <<"request">>,
-%            method := <<"subscription.create">>,
-%            correlation_data := CorrData,
-%            response_topic := RespTopic}} ->
-%                handle_publish_broker_dynsub_create_request(
-%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
-%         {service,
-%          #{<<"object">> := Object,
-%            <<"subject">> := Subject},
-%          #{type := <<"request">>,
-%            method := <<"subscription.delete">>,
-%            correlation_data := CorrData,
-%            response_topic := RespTopic}} ->
-%                handle_publish_broker_dynsub_delete_request(
-%                    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State);
-%         _ ->
-%             error_logger:error_msg(
-%                 "Error on publish: unsupported broker request = ~p with properties = ~p "
-%                 "from the agent = '~s' using mode = '~s', ",
-%                 [Payload, Properties, mqttgw_id:format_agent_id(AgentId), Mode]),
-%             {error, #{reason_code => impl_specific_error}}
-%     catch
-%         T:R ->
-%             error_logger:error_msg(
-%                 "Error on publish: an invalid broker request = ~p with properties = ~p "
-%                 "from the agent = '~s' using mode = '~s', "
-%                 "exception_type = ~p, exception_reason = ~p",
-%                 [Payload, Properties, mqttgw_id:format_agent_id(AgentId), Mode, T, R]),
-%             {error, #{reason_code => impl_specific_error}}
-%     end.
+-spec handle_publish_broker_dynsub_create_request(
+    binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
+    binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
+    -> ok | {error, error()}.
+handle_publish_broker_dynsub_create_request(
+    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
+    #state{
+        time=Time,
+        unique_id=UniqueId,
+        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-% -spec handle_publish_broker_dynsub_create_request(
-%     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-%     binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-%     -> ok | {error, error()}.
-% handle_publish_broker_dynsub_create_request(
-%     Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
-%     #state{
-%         time=Time,
-%         unique_id=UniqueId,
-%         session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
-%     SessionPairId = format_session_id(SessionId, ParentSessionId),
+    %% Subscribe the agent to the app's topic and send a success response
+    App = mqttgw_id:format_account_id(AgentId),
+    Data = #{app => App, object => Object, version => Version},
+    create_dynsub(Subject, Data),
 
-%     %% Subscribe the agent to the app's topic and send a success response
-%     App = mqttgw_authn:format_account_id(AgentId),
-%     Data = #{app => App, object => Object, version => Version},
-%     create_dynsub(Subject, Data),
+    %% Send an unicast response to the 3rd-party agent
+    send_dynsub_response(
+        App, CorrData, RespTopic, BrokerId, Conn, AgentId,
+        UniqueId, SessionPairId, Time),
 
-%     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(
-%         App, CorrData, RespTopic, BrokerId, Conn, AgentId,
-%         UniqueId, SessionPairId, Time),
+    %% Send a multicast event to the application
+    send_dynsub_multicast_event(
+        <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
+        UniqueId, SessionPairId, Time),
+    ok.
 
-%     %% Send a multicast event to the application
-%     send_dynsub_multicast_event(
-%         <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-%         UniqueId, SessionPairId, Time),
-%     ok.
+-spec handle_publish_broker_dynsub_delete_request(
+    binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
+    binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
+    -> ok | {error, error()}.
+handle_publish_broker_dynsub_delete_request(
+    Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
+    #state{
+        time=Time,
+        unique_id=UniqueId,
+        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+    SessionPairId = format_session_id(SessionId, ParentSessionId),
 
-% -spec handle_publish_broker_dynsub_delete_request(
-%     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-%     binary(), binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-%     -> ok | {error, error()}.
-% handle_publish_broker_dynsub_delete_request(
-%     Version, Object, Subject, CorrData, RespTopic, BrokerId, AgentId, State) ->
-%     #state{
-%         time=Time,
-%         unique_id=UniqueId,
-%         session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
-%     SessionPairId = format_session_id(SessionId, ParentSessionId),
+    %% Unsubscribe the agent from the app's topic and send a success response
+    App = mqttgw_id:format_account_id(AgentId),
+    Data = #{app => App, object => Object, version => Version},
+    delete_dynsub(Subject, Data),
 
-%     %% Unsubscribe the agent from the app's topic and send a success response
-%     App = mqttgw_authn:format_account_id(AgentId),
-%     Data = #{app => App, object => Object, version => Version},
-%     delete_dynsub(Subject, Data),
+    %% Send an unicast response to the 3rd-party agent
+    send_dynsub_response(
+        App, CorrData, RespTopic, BrokerId, Conn, AgentId,
+        UniqueId, SessionPairId, Time),
 
-%     %% Send an unicast response to the 3rd-party agent
-%     send_dynsub_response(
-%         App, CorrData, RespTopic, BrokerId, Conn, AgentId,
-%         UniqueId, SessionPairId, Time),
-
-%     %% Send a multicast event to the application
-%     send_dynsub_multicast_event(
-%         <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-%         UniqueId, SessionPairId, Time),
-%     ok.
+    %% Send a multicast event to the application
+    send_dynsub_multicast_event(
+        <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
+        UniqueId, SessionPairId, Time),
+    ok.
 
 -spec handle_message_properties(message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
     -> message().
@@ -1003,218 +997,12 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% API: Deliver
 %% =============================================================================
 
-%% TODO: remove the local state
-%% START >>>>>
-%% The unicast requests don't have any advantages over multicast ones,
-%% and add a possibility of creating a bottle neck.
-%% The only reason we need them now is the local state.
-%% This redundant behavior hopefully will be unnecessary with resolving of the 'issue:1326'.
-%% https://github.com/vernemq/vernemq/issues/1326
--spec handle_deliver_dynsub_config(topic(), message(), mqttgw_id:agent_id(), state()) -> message().
-handle_deliver_dynsub_config(Topic, Message, RecvId, State) ->
-    case State#state.config#config.dynsub of
-        disabled ->
-            Message;
-        enabled ->
-            BrokerId = State#state.config#config.id,
-            handle_deliver_authz_broker_request(
-                Topic, Message, BrokerId, RecvId, State)
-    end.
-
--spec handle_deliver_authz_broker_request(
-    topic(), message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-    -> message().
-handle_deliver_authz_broker_request(Topic, Message, BrokerId, RecvId, State) ->
-    #message{properties = Props} = Message,
-    case maps:find(p_response_topic, Props) of
-        {ok, RTstr} ->
-            case binary:split(RTstr, <<$/>>, [global]) of
-                %% We consider the request as a broker request if "response topic" matches "topic".
-                [<<"agents">>, _, <<"api">>, Version, <<"in">>, App] = RT when RT =:= Topic ->
-                    handle_deliver_authz_broker_request_payload(
-                        Version, App, Message, BrokerId, RecvId, State);
-                _ ->
-                    Message
-            end;
-        _ ->
-            Message
-    end.
-
--spec handle_deliver_authz_broker_request_payload(
-    binary(), binary(), message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-    -> message().
-handle_deliver_authz_broker_request_payload(
-    Version, App, #message{payload = Payload, properties = Properties} =Message,
-    BrokerId, RecvId, State) ->
-    #state{session=#session{connection=#connection{mode=Mode}}} = State,
-
-    try {jsx:decode(Payload, [return_maps]), parse_deliver_broker_request_properties(Properties)} of
-        {#{<<"object">> := Object,
-           <<"subject">> := Subject},
-         #{type := <<"request">>,
-           method := <<"subscription.create">>,
-           connection_mode := service,
-           correlation_data := CorrData,
-           sent_by := AgentId}} ->
-                case catch parse_agent_id(Subject) of
-                    RecvId ->
-                        handle_deliver_broker_dynsub_create_request(
-                            Version, App, Object, Subject,
-                            CorrData, BrokerId, AgentId, State);
-                    _ ->
-                        %% NOTE: don't do anything if a delivery callback was called
-                        %% for a different than the subject agent
-                        Message
-                end;
-        {#{<<"object">> := Object,
-           <<"subject">> := Subject},
-         #{type := <<"request">>,
-           method := <<"subscription.delete">>,
-           connection_mode := service,
-           correlation_data := CorrData,
-           sent_by := AgentId}} ->
-                case catch parse_agent_id(Subject) of
-                    RecvId ->
-                        handle_deliver_broker_dynsub_delete_request(
-                            Version, App, Object, Subject,
-                            CorrData, BrokerId, AgentId, State);
-                    _ ->
-                        %% NOTE: don't do anything if a delivery callback was called
-                        %% for a different than the subject agent
-                        Message
-                end;
-        _ ->
-            error_logger:error_msg(
-                "Error on deliver: unsupported broker request = ~p with properties = ~p "
-                "from the agent = '~s' using mode = '~s', ",
-                [Payload, Properties, mqttgw_id:format_agent_id(RecvId), Mode]),
-            create_dynsub_error_response()
-    catch
-        T:R ->
-            error_logger:error_msg(
-                "Error on deliver: an invalid broker request = ~p with properties = ~p "
-                "from the agent = '~s' using mode = '~s', "
-                "exception_type = ~p, exception_reason = ~p",
-                [Payload, Properties, mqttgw_id:format_agent_id(RecvId), Mode, T, R]),
-            create_dynsub_error_response()
-    end.
-
--spec handle_deliver_broker_dynsub_create_request(
-    binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-    binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-    -> message().
-handle_deliver_broker_dynsub_create_request(
-    Version, App, Object, Subject, CorrData, BrokerId, AgentId, State) ->
-    #state{
-        time=Time,
-        unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
-    SessionPairId = format_session_id(SessionId, ParentSessionId),
-
-    %% Subscribe the agent to the app's topic and send a success response
-    Data = #{app => App, object => Object, version => Version},
-    create_dynsub(Subject, Data),
-
-    %% Send a multicast event to the application
-    send_dynsub_multicast_event(
-        <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-
-    %% Send an unicast response to the 3rd-party agent
-    %% NOTE: only 'service' is allowed to send a dynsub request and all the senders use 'v2'.
-    SenderConn = #connection{version=?VER_2, mode=service},
-    create_dynsub_response(
-        CorrData, BrokerId, SenderConn, AgentId,
-        UniqueId, SessionPairId, Time).
-
--spec handle_deliver_broker_dynsub_delete_request(
-    binary(), binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
-    binary(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
-    -> message().
-handle_deliver_broker_dynsub_delete_request(
-    Version, App, Object, Subject, CorrData, BrokerId, AgentId, State) ->
-    #state{
-        time=Time,
-        unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
-    SessionPairId = format_session_id(SessionId, ParentSessionId),
-
-    %% Unsubscribe the agent from the app's topic and send a success response
-    Data = #{app => App, object => Object, version => Version},
-    delete_dynsub(Subject, Data),
-
-    %% Send a multicast event to the application
-    send_dynsub_multicast_event(
-        <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-
-    %% Send an unicast response to the 3rd-party agent
-    %% NOTE: only 'service' is allowed to send a dynsub request and all the senders use 'v2'.
-    SenderConn = #connection{version=?VER_2, mode=service},
-    create_dynsub_response(
-        CorrData, BrokerId, SenderConn, AgentId,
-        UniqueId, SessionPairId, Time).
-
--spec create_dynsub_response(
-    binary(), mqttgw_id:agent_id(), connection(), mqttgw_id:agent_id(),
-    binary(), binary(), non_neg_integer())
-    -> message().
-create_dynsub_response(CorrData, BrokerId, SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
-    #message{
-        payload = jsx:encode(#{}),
-        properties =
-            validate_message_properties(
-                update_message_properties(
-                    #{p_correlation_data => CorrData,
-                        p_user_property =>
-                        [ {<<"type">>, <<"response">>},
-                          {<<"status">>, <<"202">>} ]},
-                    SenderConn,
-                    SenderId,
-                    BrokerId,
-                    UniqueId,
-                    SessionPairId,
-                    Time
-                ),
-                SenderConn,
-                SenderId
-            )}.
-
--spec create_dynsub_error_response() -> message().
-create_dynsub_error_response() ->
-    #message{payload = jsx:encode(#{issue => 1326}), properties = #{}}.
-
--spec parse_deliver_broker_request_properties(map()) -> map().
-parse_deliver_broker_request_properties(Properties) ->
-    #{p_user_property := UserProperties,
-      p_correlation_data := CorrData,
-      p_response_topic := RespTopic} = Properties,
-    {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
-    {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
-    {_, ConnMode} = lists:keyfind(<<"connection_mode">>, 1, UserProperties),
-    {_, AgentIdB} = lists:keyfind(<<"agent_id">>, 1, UserProperties),
-    AgentId = parse_agent_id(AgentIdB),
-
-    #{type => Type,
-      method => Method,
-      connection_mode => parse_connection_mode(ConnMode),
-      correlation_data => CorrData,
-      response_topic => RespTopic,
-      sent_by => AgentId}.
-%% <<<<< END
-
--spec handle_deliver_mqtt3(topic(), binary(), mqttgw_id:agent_id(), state())
+-spec handle_deliver_mqtt3(binary(), mqttgw_id:agent_id(), state())
     -> ok | {ok, list()} | {error, error()}.
-handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
+handle_deliver_mqtt3(InputPayload, RecvId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
-    %% TODO: remove the local state, remove "handle_deliver_dynsub_config"
-    try handle_deliver_dynsub_config(
-            Topic,
-            handle_mqtt3_envelope_properties(
-                validate_envelope(parse_envelope(InputPayload))),
-            RecvId,
-            State) of
+    try handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))) of
         InputMessage ->
             handle_deliver_mqtt3_changes(InputMessage, State)
     catch
@@ -1243,22 +1031,16 @@ handle_deliver_mqtt3_changes(Message, State) ->
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
 -spec handle_deliver_mqtt5(
-    topic(), binary(), map(), mqttgw_id:agent_id(), state())
+    binary(), map(), mqttgw_id:agent_id(), state())
     -> ok | {ok, map()} | {error, error()}.
-handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
+handle_deliver_mqtt5(InputPayload, _InputProperties, RecvId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
     %% TODO: don't modify message payload on publish (only properties)
     % InputMessage = #message{payload = InputPayload, properties = InputProperties},
     % handle_deliver_mqtt5_changes(Mode, InputMessage).
 
-    %% TODO: remove the local state, remove "handle_deliver_dynsub_config"
-    try handle_deliver_dynsub_config(
-            Topic,
-            handle_mqtt3_envelope_properties(
-                validate_envelope(parse_envelope(InputPayload))),
-            RecvId,
-            State) of
+    try handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))) of
         InputMessage ->
             handle_deliver_mqtt5_changes(Mode, InputMessage, State)
     catch
@@ -1559,23 +1341,23 @@ auth_on_publish_m5(
 
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain) ->
+    _QoS, _Topic, Payload, _IsRetain) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_deliver_mqtt3(Topic, Payload, AgentId, State).
+    handle_deliver_mqtt3(Payload, AgentId, State).
 
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain, Properties) ->
+    _QoS, _Topic, Payload, _IsRetain, Properties) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_deliver_mqtt5(Topic, Payload, Properties, AgentId, State).
+    handle_deliver_mqtt5(Payload, Properties, AgentId, State).
 
 auth_on_subscribe(
     _Username, {_MountPoint, Conn} = _SubscriberId,
@@ -1823,55 +1605,52 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
 
     ok.
 
-%% TODO: remove the local state
-%% TODO: uncomment the lines bellow
+-spec send_dynsub_response(
+    binary(), binary(), binary(), mqttgw_id:agent_id(),
+    connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
+    -> ok.
+send_dynsub_response(
+    App, CorrData, RespTopic, BrokerId,
+    SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
+    #connection{mode=Mode} = SenderConn,
 
-% -spec send_dynsub_response(
-%     binary(), binary(), binary(), mqttgw_id:agent_id(),
-%     connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
-%     -> ok.
-% send_dynsub_response(
-%     App, CorrData, RespTopic, BrokerId,
-%     SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
-%     #connection{mode=Mode} = SenderConn,
-
-%     QoS = 1,
-%     try mqttgw_broker:publish(
-%         validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
-%         envelope(
-%             #message{
-%                 payload = jsx:encode(#{}),
-%                 properties =
-%                     validate_message_properties(
-%                         update_message_properties(
-%                             #{p_correlation_data => CorrData,
-%                               p_user_property =>
-%                                 [ {<<"type">>, <<"response">>},
-%                                   {<<"status">>, <<"202">>} ]},
-%                             SenderConn,
-%                             SenderId,
-%                             BrokerId,
-%                             UniqueId,
-%                             SessionPairId,
-%                             Time
-%                         ),
-%                         SenderConn,
-%                         SenderId
-%                     )}),
-%         QoS) of
-%         _ ->
-%             ok
-%     catch
-%         T:R ->
-%             error_logger:error_msg(
-%                 "Error sending subscription success response to = '~s' "
-%                 "from the agent = '~s' using mode = '~s' "
-%                 "by the broker agent = '~s', "
-%                 "exception_type = ~p, exception_reason = ~p",
-%                 [RespTopic, mqttgw_id:format_agent_id(SenderId), Mode,
-%                  mqttgw_id:format_agent_id(BrokerId), T, R]),
-%             {error, #{reason_code => impl_specific_error}}
-%     end.
+    QoS = 1,
+    try mqttgw_broker:publish(
+        validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
+        envelope(
+            #message{
+                payload = jsx:encode(#{}),
+                properties =
+                    validate_message_properties(
+                        update_message_properties(
+                            #{p_correlation_data => CorrData,
+                              p_user_property =>
+                                [ {<<"type">>, <<"response">>},
+                                  {<<"status">>, <<"202">>} ]},
+                            SenderConn,
+                            SenderId,
+                            BrokerId,
+                            UniqueId,
+                            SessionPairId,
+                            Time
+                        ),
+                        SenderConn,
+                        SenderId
+                    )}),
+        QoS) of
+        _ ->
+            ok
+    catch
+        T:R ->
+            error_logger:error_msg(
+                "Error sending subscription success response to = '~s' "
+                "from the agent = '~s' using mode = '~s' "
+                "by the broker agent = '~s', "
+                "exception_type = ~p, exception_reason = ~p",
+                [RespTopic, mqttgw_id:format_agent_id(SenderId), Mode,
+                 mqttgw_id:format_agent_id(BrokerId), T, R]),
+            {error, #{reason_code => impl_specific_error}}
+    end.
 
 -spec send_dynsub_multicast_event(
     binary(), mqttgw_dynsub:subject(), mqttgw_dynsub:data(),
@@ -1978,26 +1757,23 @@ authz_subscription_topic(Data) ->
       version := Version} = Data,
     [<<"apps">>, App, <<"api">>, Version | Object].
 
-%% TODO: remove the local state
-%% TODO: uncomment the lines bellow
+-spec validate_dynsub_response_topic(topic(), binary()) -> topic().
+validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
+    Topic;
+validate_dynsub_response_topic(Topic, App) ->
+    error({nomatch_app_in_broker_response_topic, Topic, App}).
 
-% -spec validate_dynsub_response_topic(topic(), binary()) -> topic().
-% validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
-%     Topic;
-% validate_dynsub_response_topic(Topic, App) ->
-%     error({nomatch_app_in_broker_response_topic, Topic, App}).
-
-% -spec parse_broker_request_properties(map()) -> map().
-% parse_broker_request_properties(Properties) ->
-%     #{p_user_property := UserProperties,
-%       p_correlation_data := CorrData,
-%       p_response_topic := RespTopic} = Properties,
-%     {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
-%     {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
-%     #{type => Type,
-%       method => Method,
-%       correlation_data => CorrData,
-%       response_topic => RespTopic}.
+-spec parse_broker_request_properties(map()) -> map().
+parse_broker_request_properties(Properties) ->
+    #{p_user_property := UserProperties,
+      p_correlation_data := CorrData,
+      p_response_topic := RespTopic} = Properties,
+    {_, Type} = lists:keyfind(<<"type">>, 1, UserProperties),
+    {_, Method} = lists:keyfind(<<"method">>, 1, UserProperties),
+    #{type => Type,
+      method => Method,
+      correlation_data => CorrData,
+      response_topic => RespTopic}.
 
 -spec binary_join([binary()], binary()) -> binary().
 binary_join([H], _) -> H;
@@ -2651,7 +2427,7 @@ prop_ondeliver() ->
             %% MQTT 5
             begin
                 {ok, Modifiers} =
-                    handle_deliver_mqtt5(Topic, InputPayload, #{}, AgentId, State),
+                    handle_deliver_mqtt5(InputPayload, #{}, AgentId, State),
                 Payload = maps:get(payload, Modifiers)
             end,
 
@@ -2660,7 +2436,7 @@ prop_ondeliver() ->
                 ExpectedPayload3 =
                     jsx:encode(#{payload => Payload, properties => ExpectedProperties}),
                 {ok, Modifiers3} =
-                    handle_deliver_mqtt3(Topic, InputPayload, AgentId, State),
+                    handle_deliver_mqtt3(InputPayload, AgentId, State),
                 {_, ExpectedPayload3} = lists:keyfind(payload, 1, Modifiers3)
             end,
 
