@@ -7,7 +7,7 @@
 ]).
 
 %% Types
--type config() :: mqttgw_dynsubstate:constraints().
+-type config() :: mqttgw_ratelimitstate:constraints().
 
 %% =============================================================================
 %% API
