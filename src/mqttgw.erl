@@ -308,6 +308,11 @@ handle_topic_unsubscribed(ClientId, Topics, State) when Topics =:= all_topics ->
 
     ok;
 handle_topic_unsubscribed(_ClientId, _Topics, _State) ->
+    %% NOTE: nothing to implement here because
+    %% user agents cannot delete their dynsubs.
+    %% Service agents can delete user's dynsubs,
+    %% we handle that within subscription request handlers.
+
     ok.
 
 %% =============================================================================
