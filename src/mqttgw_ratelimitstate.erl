@@ -68,7 +68,8 @@ put_dirty(AgentId, Data) ->
     ets:insert(?AGENT_TABLE, Item),
     ok.
 
--spec put(mqttgw_id:agent_id(), data(), non_neg_integer(), constraints()) -> ok | {error, error_reason()}.
+-spec put(mqttgw_id:agent_id(), data(), non_neg_integer(), constraints())
+    -> ok | {error, error_reason()}.
 put(AgentId, Data, Time, Constraints) ->
     #{bytes := Bytes} = Data,
     #{message_count := MessageCountLimit,
