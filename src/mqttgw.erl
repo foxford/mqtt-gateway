@@ -642,7 +642,7 @@ handle_publish_broker_dynsub_create_request(
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     %% Subscribe the agent to the app's topic and send a success response
@@ -650,14 +650,9 @@ handle_publish_broker_dynsub_create_request(
     Data = #{app => App, object => Object, version => Version},
     create_dynsub(Subject, Data),
 
-    %% Send an unicast response to the 3rd-party agent
+    %% Send a response to the application.
     send_dynsub_response(
-        App, CorrData, RespTopic, BrokerId, Conn, AgentId,
-        UniqueId, SessionPairId, Time),
-
-    %% Send a multicast event to the application
-    send_dynsub_multicast_event(
-        <<"subscription.create">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
+        App, CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
     ok.
 
@@ -670,7 +665,7 @@ handle_publish_broker_dynsub_delete_request(
     #state{
         time=Time,
         unique_id=UniqueId,
-        session=#session{id=SessionId, parent_id=ParentSessionId, connection=Conn}} = State,
+        session=#session{id=SessionId, parent_id=ParentSessionId}} = State,
     SessionPairId = format_session_id(SessionId, ParentSessionId),
 
     %% Unsubscribe the agent from the app's topic and send a success response
@@ -678,9 +673,9 @@ handle_publish_broker_dynsub_delete_request(
     Data = #{app => App, object => Object, version => Version},
     delete_dynsub(Subject, Data),
 
-    %% Send an unicast response to the 3rd-party agent
+    %% Send a response to the application.
     send_dynsub_response(
-        App, CorrData, RespTopic, BrokerId, Conn, AgentId,
+        App, CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send a multicast event to the application
@@ -1611,11 +1606,11 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
     ok.
 
 -spec send_dynsub_response(
-    binary(), binary(), binary(), mqttgw_id:agent_id(),
+    binary(), binary(), binary(),
     connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
     -> ok.
 send_dynsub_response(
-    App, CorrData, RespTopic, BrokerId,
+    App, CorrData, RespTopic,
     SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
     #connection{mode=Mode} = SenderConn,
 
@@ -1631,10 +1626,10 @@ send_dynsub_response(
                             #{p_correlation_data => CorrData,
                               p_user_property =>
                                 [ {<<"type">>, <<"response">>},
-                                  {<<"status">>, <<"202">>} ]},
+                                  {<<"status">>, <<"200">>} ]},
                             SenderConn,
                             SenderId,
-                            BrokerId,
+                            SenderId,
                             UniqueId,
                             SessionPairId,
                             Time
@@ -1653,7 +1648,7 @@ send_dynsub_response(
                 "by the broker agent = '~s', "
                 "exception_type = ~p, exception_reason = ~p",
                 [RespTopic, mqttgw_id:format_agent_id(SenderId), Mode,
-                 mqttgw_id:format_agent_id(BrokerId), T, R]),
+                 mqttgw_id:format_agent_id(SenderId), T, R]),
             {error, #{reason_code => impl_specific_error}}
     end.
 
