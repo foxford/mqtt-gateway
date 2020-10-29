@@ -149,7 +149,7 @@ docker run -ti --rm \
     -p 1883:1883 \
     netology-group/mqtt-gateway
 
-## Subscribing to the topic of user's incoming messages
+## Subscribing to the topic of app's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_sub \
@@ -158,7 +158,17 @@ APP='app.svc.example.org' \
         -u 'v2::default' \
         | jq '.'
 
-## Subscribing to the topic of app's incoming multicast messages
+## Subscribing to the topic of app's incoming responses
+OBSERVER='devops.svc.example.org' \
+APP='app.svc.example.org' \
+    && mosquitto_sub \
+        -i "test-1.${OBSERVER}" \
+        -t "agents/+/api/v1/in/${APP}" \
+        -D connect user-property 'connection_version' 'v2' \
+        -D connect user-property 'connection_mode' 'observer' \
+        | jq '.'
+
+## Subscribing to the topic of app's incoming multicast events
 OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
     && mosquitto_sub \
@@ -168,7 +178,7 @@ APP='app.svc.example.org' \
         -D connect user-property 'connection_mode' 'observer' \
         | jq '.'
 
-## Subscribing to the topic of broker's incoming multicast messages
+## Subscribing to the topic of broker's incoming multicast requests
 OBSERVER='devops.svc.example.org' \
 BROKER='mqtt-gateway.svc.example.org' \
     && mosquitto_sub \
