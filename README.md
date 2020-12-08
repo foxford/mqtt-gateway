@@ -149,7 +149,7 @@ docker run -ti --rm \
     -p 1883:1883 \
     netology-group/mqtt-gateway
 
-## Subscribing to the topic of app's incoming messages
+## Subscribing to the topic of user's incoming messages
 USER='john.usr.example.net' \
 APP='app.svc.example.org' \
     && mosquitto_sub \
@@ -163,7 +163,7 @@ OBSERVER='devops.svc.example.org' \
 APP='app.svc.example.org' \
     && mosquitto_sub \
         -i "test-1.${OBSERVER}" \
-        -t "agents/+/api/v1/in/${APP}" \
+        -t "agents/alpha.${APP}/api/v1/in/+" \
         -D connect user-property 'connection_version' 'v2' \
         -D connect user-property 'connection_mode' 'observer' \
         | jq '.'
@@ -199,7 +199,7 @@ BROKER='mqtt-gateway.svc.example.org' \
         -D connect user-property 'connection_mode' 'service' \
         -D publish user-property 'type' 'request' \
         -D publish user-property 'method' 'subscription.create' \
-        -D publish response-topic "agents/test.${USER}/api/v1/in/${APP}" \
+        -D publish response-topic "agents/alpha.${APP}/api/v1/in/${BROKER}" \
         -D publish correlation-data 'foobar' \
         -m "{\"object\": [\"rooms\", \"ROOM_ID\", \"events\"], \"subject\": \"test.${USER}\"}"
 

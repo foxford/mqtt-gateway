@@ -652,7 +652,7 @@ handle_publish_broker_dynsub_create_request(
 
     %% Send a response to the application.
     send_dynsub_response(
-        App, CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
+        CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
     ok.
 
@@ -675,7 +675,7 @@ handle_publish_broker_dynsub_delete_request(
 
     %% Send a response to the application.
     send_dynsub_response(
-        App, CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
+        CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
         UniqueId, SessionPairId, Time),
 
     %% Send a multicast event to the application
@@ -1606,17 +1606,19 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
     ok.
 
 -spec send_dynsub_response(
-    binary(), binary(), binary(),
-    connection(), mqttgw_id:agent_id(), binary(), binary(), non_neg_integer())
+    binary(), binary(), connection(), mqttgw_id:agent_id(),
+    binary(), binary(), non_neg_integer())
     -> ok.
 send_dynsub_response(
-    App, CorrData, RespTopic,
+    CorrData, RespTopic,
     SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
     #connection{mode=Mode} = SenderConn,
 
     QoS = 1,
     try mqttgw_broker:publish(
-        validate_dynsub_response_topic(binary:split(RespTopic, <<$/>>, [global]), App),
+        validate_dynsub_response_topic(
+            binary:split(RespTopic, <<$/>>, [global]),
+            mqttgw_id:format_account_id(SenderId)),
         envelope(
             #message{
                 payload = jsx:encode(#{}),
@@ -1758,10 +1760,10 @@ authz_subscription_topic(Data) ->
     [<<"apps">>, App, <<"api">>, Version | Object].
 
 -spec validate_dynsub_response_topic(topic(), binary()) -> topic().
-validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, App] = Topic, App) ->
+validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Broker] = Topic, Broker) ->
     Topic;
-validate_dynsub_response_topic(Topic, App) ->
-    error({nomatch_app_in_broker_response_topic, Topic, App}).
+validate_dynsub_response_topic(Topic, Broker) ->
+    error({nomatch_broker_in_broker_response_topic, Topic, Broker}).
 
 -spec parse_broker_request_properties(map()) -> map().
 parse_broker_request_properties(Properties) ->
