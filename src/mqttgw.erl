@@ -45,6 +45,8 @@
     on_client_gone/1
 ]).
 
+-export([send_dynsub_response/7, send_dynsub_multicast_event/8]).
+
 %% Definitions
 -define(APP, ?MODULE).
 -define(VER_2, <<"v2">>).
@@ -648,13 +650,9 @@ handle_publish_broker_dynsub_create_request(
     %% Subscribe the agent to the app's topic and send a success response
     App = mqttgw_id:format_account_id(AgentId),
     Data = #{app => App, object => Object, version => Version},
-    create_dynsub(Subject, Data),
-
-    %% Send a response to the application.
-    send_dynsub_response(
-        CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-    ok.
+    DynsubRespData = {CorrData, RespTopic, ?BROKER_CONNECTION,
+                        BrokerId, UniqueId, SessionPairId, Time},
+    mqttgw_dyn_srv:create_dynsub(Subject, Data, DynsubRespData).
 
 -spec handle_publish_broker_dynsub_delete_request(
     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
@@ -671,18 +669,9 @@ handle_publish_broker_dynsub_delete_request(
     %% Unsubscribe the agent from the app's topic and send a success response
     App = mqttgw_id:format_account_id(AgentId),
     Data = #{app => App, object => Object, version => Version},
-    delete_dynsub(Subject, Data),
-
-    %% Send a response to the application.
-    send_dynsub_response(
-        CorrData, RespTopic, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-
-    %% Send a multicast event to the application
-    send_dynsub_multicast_event(
-        <<"subscription.delete">>, Subject, Data, ?BROKER_CONNECTION, BrokerId,
-        UniqueId, SessionPairId, Time),
-    ok.
+    DynsubRespData = {CorrData, RespTopic, ?BROKER_CONNECTION,
+                        BrokerId, UniqueId, SessionPairId, Time},
+    mqttgw_dyn_srv:delete_dynsub(Subject, Data, DynsubRespData).
 
 -spec handle_message_properties(message(), mqttgw_id:agent_id(), mqttgw_id:agent_id(), state())
     -> message().
@@ -1562,31 +1551,6 @@ envelope(Message) ->
         #{properties => to_mqtt3_envelope_properties(Properties, #{}),
           payload => Payload}).
 
--spec create_dynsub(mqttgw_dynsub:subject(), mqttgw_dynsub:data()) -> ok.
-create_dynsub(Subject, Data) ->
-    QoS = 1,
-    Topic = authz_subscription_topic(Data),
-    mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
-
-    error_logger:info_msg(
-        "Dynamic subscription: ~p has been created "
-        "for the subject = '~s'",
-        [Data, Subject]),
-
-    ok.
-
--spec delete_dynsub(mqttgw_dynsub:subject(), mqttgw_dynsub:data()) -> ok.
-delete_dynsub(Subject, Data) ->
-    Topic = authz_subscription_topic(Data),
-    mqttgw_broker:unsubscribe(Subject, [Topic]),
-
-    error_logger:info_msg(
-        "Dynamic subscription: ~p has been deleted "
-        "for the subject = '~s'",
-        [Data, Subject]),
-
-    ok.
-
 -spec delete_client_dynsubs(
     mqttgw_dynsub:subject(), connection(), mqttgw_id:agent_id(),
     binary(), binary(), non_neg_integer())
@@ -1601,7 +1565,7 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
      || Data <- DynSubL],
 
     %% Remove subscriptions
-    [delete_dynsub(Subject, Data) || Data  <- DynSubL],
+    [mqttgw_dyn_srv:delete_dynsub(Subject, Data) || Data  <- DynSubL],
 
     ok.
 
@@ -1751,13 +1715,6 @@ dynsub_event_multicast_topic(Data, BrokerId) ->
     #{version := Ver, app := App} = Data,
     [<<"agents">>, mqttgw_id:format_agent_id(BrokerId),
      <<"api">>, Ver, <<"out">>, App].
-
--spec authz_subscription_topic(mqttgw_dynsub:data()) -> topic().
-authz_subscription_topic(Data) ->
-    #{app := App,
-      object := Object,
-      version := Version} = Data,
-    [<<"apps">>, App, <<"api">>, Version | Object].
 
 -spec validate_dynsub_response_topic(topic(), binary()) -> topic().
 validate_dynsub_response_topic([<<"agents">>, _, <<"api">>, _, <<"in">>, Broker] = Topic, Broker) ->

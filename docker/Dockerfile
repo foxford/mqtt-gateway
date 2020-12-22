@@ -32,3 +32,4 @@ RUN set -xe \
 RUN mkdir /etc/vernemq
 COPY --from=build-stage "/build/_rel/mqttgw" "/app/mqttgw/"
 COPY "docker/vernemq.conf" "/vernemq/etc/vernemq.conf"
+RUN sed -i.bak -r "s/-name VerneMQ@.+/-name $(cat /vernemq/etc/vernemq.conf | grep nodename | awk -F ' = ' '{print $2}')/" /vernemq/etc/vm.args
