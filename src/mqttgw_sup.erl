@@ -24,5 +24,8 @@ start_link() ->
 
 init([]) ->
     Flags = #{},
-    Procs = [],
+    Procs = [#{
+        id => mqttgw_dyn_srv,
+        start => {mqttgw_dyn_srv, start, []}
+    }],
     {ok, {Flags, Procs}}.

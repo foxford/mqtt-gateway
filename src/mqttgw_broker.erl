@@ -40,7 +40,7 @@ subscribe(ClientId, Topics) ->
 
 unsubscribe(ClientId, Topics) ->
     wait_til_ready(),
-    CAPSubscribe = vmq_config:get_env(allow_subscribe_during_netsplit, false),
+    CAPSubscribe = vmq_config:get_env(allow_unsubscribe_during_netsplit, false),
     vmq_reg:unsubscribe(CAPSubscribe, {"", ClientId}, Topics),
     ok.
 
