@@ -19,15 +19,13 @@ jobs:
       name: Tests
       install: make elvis deps plt
       script: make check EUNIT_OPTS=verbose
-    - stage: check
-      name: Docs
-      install: curl https://sh.rustup.rs -sSf | sh -s -- -y && ${HOME}/.cargo/bin/cargo install mdbook --vers ^0.2
-      script: ${TRAVIS_HOME}/.cargo/bin/mdbook build docs && ./deploy.init.sh && PROJECT='mqtt-gateway' ./deploy/s3-docs.sh
     - stage: build
       name: Docs
-      install: cargo install mdbook --vers ^0.4
+      install:
+        - curl https://sh.rustup.rs -sSf | sh -s -- -y
+        - ${HOME}/.cargo/bin/cargo install mdbook --vers ^0.4
       script:
-        - ./deploy.init.sh
+        - ${TRAVIS_HOME}/.cargo/bin/mdbook build docs
         - mdbook build docs
         - ./deploy/ci-mdbook.sh
     - stage: build
