@@ -21,7 +21,7 @@ create_dynsub(Subject, Data, DynsubRespData) ->
         undefined ->
             error_logger:error_msg(
                 "Error on publish: subject was not in vmq_subscriber_db, data: ~p",
-                [Data]),
+                [Subject, Data]),
             {error, #{reason_code => impl_specific_error}};
         %% if the subject is subscribed on multiple nodes something went wrong
         %% since we disallow same agent ids
@@ -33,6 +33,7 @@ create_dynsub(Subject, Data, DynsubRespData) ->
             {error, #{reason_code => impl_specific_error}};
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
+            error_logger:info_msg("Single node sub: ~p ~p", [Subject, Data]),
             create_sub(Subject, Data),
             {CorrData, RespTopic, SenderConn, SenderId,
                 UniqueId, SessionPairId, Time} = DynsubRespData,
@@ -44,6 +45,7 @@ create_dynsub(Subject, Data, DynsubRespData) ->
             ok;
         %% Subject is on a different node, we need to create dynsub on that node.
         [{Node, _, _Subs}] ->
+            error_logger:info_msg("Multi node sub: ~p ~p", [Subject, Data]),
             Topic = authz_subscription_topic(Data),
             register_dynsub(Node, Subject, Topic, Data, DynsubRespData),
             ok
@@ -215,8 +217,8 @@ handle_info(Event,
 
 handle_event(Handler, Event, SubsQueue, RemsQueue) ->
     case Handler(Event) of
-        {update, SubscriberId, [{_Node, _, OldSubs}], [{_Node, _, NewSubs}]} ->
-            NewSubsQueue = case maps:find(SubscriberId, SubsQueue) of
+        {update, {_MountPoint, AgentId}, [{_Node, _, OldSubs}], [{_Node, _, NewSubs}]} ->
+            NewSubsQueue = case maps:find(AgentId, SubsQueue) of
                 error ->
                     SubsQueue;
                 {ok, Additions} ->
@@ -224,9 +226,9 @@ handle_event(Handler, Event, SubsQueue, RemsQueue) ->
                     UpdatedAdditions = lists:foldl(fun addition_fold/2,
                         Additions,
                         AddedSubs),
-                    maps:put(SubscriberId, UpdatedAdditions, SubsQueue)
+                    maps:put(AgentId, UpdatedAdditions, SubsQueue)
             end,
-            NewRemsQueue = case maps:find(SubscriberId, RemsQueue) of
+            NewRemsQueue = case maps:find(AgentId, RemsQueue) of
                 error ->
                     RemsQueue;
                 {ok, Removals} ->
@@ -234,7 +236,7 @@ handle_event(Handler, Event, SubsQueue, RemsQueue) ->
                     UpdatedRemovals = lists:foldl(fun removal_fold/2,
                         Removals,
                         RemovedSubs),
-                    maps:put(SubscriberId, UpdatedRemovals, RemsQueue)
+                    maps:put(AgentId, UpdatedRemovals, RemsQueue)
             end,
             {NewSubsQueue, NewRemsQueue};
         _ ->
