@@ -1570,7 +1570,8 @@ envelope(Message) ->
     -> ok.
 delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
     %% First delete all subs in dynsubstate
-    mqttgw_subs_old:delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Time),
+    mqttgw_subs_old:delete_client_dynsubs(Subject, BrokerConn, BrokerId,
+        UniqueId, SessionPairId, Time),
     %% Then delete everything else
     DynSubL = mqttgw_dynsub:list(Subject),
 

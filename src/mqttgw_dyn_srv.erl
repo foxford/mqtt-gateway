@@ -34,14 +34,29 @@ create_dynsub(Subject, Data, DynsubRespData) ->
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
             error_logger:info_msg("Single node sub: ~p ~p", [Subject, Data]),
-            create_sub(Subject, Data),
-            {CorrData, RespTopic, SenderConn, SenderId,
-                UniqueId, SessionPairId, Time} = DynsubRespData,
+            %% TODO: in theory we could just subscribe directly here
+            %% with following code without doing casts through genserver
+            %%
+            %% BUT it seems it causes race in calls to vmq_reg:subscribe()
+            %% especially when the client tries to subscribe to two services across two nodes
+            %% and the services override each other's subs
+            %% since one creates a sub inside the genserver and
+            %% another inside the on_publish hook thus concurrency
+            %%
+            %% THE SOLUTION is to do this through the genserver anyway
+            %% so it runs in a singlethreaded manner
 
-            %% Send a response to the application.
-            mqttgw:send_dynsub_response(
-                CorrData, RespTopic, SenderConn, SenderId,
-                UniqueId, SessionPairId, Time),
+            % create_sub(Subject, Data),
+            % {CorrData, RespTopic, SenderConn, SenderId,
+            %     UniqueId, SessionPairId, Time} = DynsubRespData,
+
+            % %% Send a response to the application.
+            % mqttgw:send_dynsub_response(
+            %     CorrData, RespTopic, SenderConn, SenderId,
+            %     UniqueId, SessionPairId, Time),
+            % error_logger:error_msg("Current subs: ~p", [vmq_subscriber_db:read({[], Subject})]),
+            Topic = authz_subscription_topic(Data),
+            register_dynsub(Node, Subject, Topic, Data, DynsubRespData),
             ok;
         %% Subject is on a different node, we need to create dynsub on that node.
         [{Node, _, _Subs}] ->
@@ -71,8 +86,11 @@ delete_dynsub(Subject, Data, DynsubRespData) ->
             {error, #{reason_code => impl_specific_error}};
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
-            delete_dynsub(Subject, Data),
-            send_dynsub_del_response(Subject, Data, DynsubRespData),
+            %% TODO: same as with create_dynsub earlier
+            %% delete_dynsub(Subject, Data),
+            %% send_dynsub_del_response(Subject, Data, DynsubRespData),
+            Topic = authz_subscription_topic(Data),
+            remove_dynsub(Node, Subject, Topic, Data, DynsubRespData),
             ok;
         %% Subject is on a different node, we need to delete the dynsub on that node.
         [{Node, _, _Subs}] ->
@@ -163,7 +181,7 @@ handle_cast(
                         Topic => DynsubRespData}}},
             {noreply, NewState};
         [{_Node, _, Subs}] ->
-            case lists:search(fun({T, _}) -> T == Topic end, Subs) of
+            case search_topic_in_subs(Subs, Topic) of
                 {value, _Val} ->
                     send_dynsub_response(DynsubRespData),
                     {noreply, State};
@@ -188,13 +206,14 @@ handle_cast(
     %% if the topic is not in subscriptions then the event already arrived earlier and
     %% subscription was deleted so we can just send reply here since it was not sent before
     %%
-    %% if the topic is still here then we need to wait for an event from vmq_metadata and send reply in the event handler
+    %% if the topic is still here then we need to wait for an event
+    %% from vmq_metadata and send reply in the event handler
     case vmq_subscriber_db:read({[], Subject}) of
         undefined ->
             send_dynsub_del_response(Subject, Data, DynsubRespData),
             {noreply, State};
         [{_Node, _, Subs}] ->
-            case lists:search(fun({T, _}) -> T == Topic end, Subs) of
+            case search_topic_in_subs(Subs, Topic) of
                 {value, _Val} ->
                     SubscriberQ = maps:get(Subject, RemsQueue, #{}),
                     NewState = State#{
@@ -283,3 +302,6 @@ send_dynsub_del_response(Subject, Data, {CorrData, RespTopic, SenderConn, Sender
     mqttgw:send_dynsub_multicast_event(
         <<"subscription.delete">>, Subject, Data, SenderConn, SenderId,
         UniqueId, SessionPairId, Time).
+
+search_topic_in_subs(Subs, Topic) ->
+    lists:search(fun({T, _}) -> T == Topic end, Subs).
