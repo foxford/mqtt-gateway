@@ -23,8 +23,8 @@
     handle_publish_mqtt3/4,
     handle_publish_mqtt5/5,
     handle_publish_authz/4,
-    handle_deliver_mqtt3/4,
-    handle_deliver_mqtt5/5,
+    handle_deliver_mqtt3/3,
+    handle_deliver_mqtt5/4,
     handle_subscribe_authz/3
 ]).
 
@@ -991,15 +991,12 @@ verify_publish_topic(Topic, _AccountId, AgentId, Mode)
 %% API: Deliver
 %% =============================================================================
 
--spec handle_deliver_mqtt3(topic(), binary(), mqttgw_id:agent_id(), state())
+-spec handle_deliver_mqtt3(binary(), mqttgw_id:agent_id(), state())
     -> ok | {ok, list()} | {error, error()}.
-handle_deliver_mqtt3(Topic, InputPayload, RecvId, State) ->
+handle_deliver_mqtt3(InputPayload, RecvId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
-    try mqttgw_subs_old:handle_deliver_dynsub_config(Topic,
-        handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))),
-        RecvId,
-        State) of
+    try handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))) of
         InputMessage ->
             handle_deliver_mqtt3_changes(InputMessage, State)
     catch
@@ -1028,21 +1025,16 @@ handle_deliver_mqtt3_changes(Message, State) ->
     {ok, [{payload, envelope(ModifiedMessage)}]}.
 
 -spec handle_deliver_mqtt5(
-    topic(), binary(), map(), mqttgw_id:agent_id(), state())
+    binary(), map(), mqttgw_id:agent_id(), state())
     -> ok | {ok, map()} | {error, error()}.
-handle_deliver_mqtt5(Topic, InputPayload, _InputProperties, RecvId, State) ->
+handle_deliver_mqtt5(InputPayload, _InputProperties, RecvId, State) ->
     #state{session=#session{connection=#connection{mode=Mode}}} = State,
 
     %% TODO: don't modify message payload on publish (only properties)
     % InputMessage = #message{payload = InputPayload, properties = InputProperties},
     % handle_deliver_mqtt5_changes(Mode, InputMessage).
 
-    try mqttgw_subs_old:handle_deliver_dynsub_config(
-            Topic,
-            handle_mqtt3_envelope_properties(
-                validate_envelope(parse_envelope(InputPayload))),
-            RecvId,
-            State) of
+    try handle_mqtt3_envelope_properties(validate_envelope(parse_envelope(InputPayload))) of
         InputMessage ->
             handle_deliver_mqtt5_changes(Mode, InputMessage, State)
     catch
@@ -1343,23 +1335,23 @@ auth_on_publish_m5(
 
 on_deliver(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain) ->
+    _QoS, _Topic, Payload, _IsRetain) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_deliver_mqtt3(Topic, Payload, AgentId, State).
+    handle_deliver_mqtt3(Payload, AgentId, State).
 
 on_deliver_m5(
     _Username, {_MountPoint, Conn} = _SubscriberId,
-    _QoS, Topic, Payload, _IsRetain, Properties) ->
+    _QoS, _Topic, Payload, _IsRetain, Properties) ->
     AgentId = parse_agent_id(Conn),
     State = broker_state(
         mqttgw_state:get(config),
         mqttgw_state:get(AgentId),
         os:system_time(millisecond)),
-    handle_deliver_mqtt5(Topic, Payload, Properties, AgentId, State).
+    handle_deliver_mqtt5(Payload, Properties, AgentId, State).
 
 auth_on_subscribe(
     _Username, {_MountPoint, Conn} = _SubscriberId,
@@ -1569,10 +1561,6 @@ envelope(Message) ->
     binary(), binary(), non_neg_integer())
     -> ok.
 delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Time) ->
-    %% First delete all subs in dynsubstate
-    mqttgw_subs_old:delete_client_dynsubs(Subject, BrokerConn, BrokerId,
-        UniqueId, SessionPairId, Time),
-    %% Then delete everything else
     DynSubL = mqttgw_dynsub:list(Subject),
 
     %% Send a multicast event to the application
