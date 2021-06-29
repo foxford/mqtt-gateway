@@ -2,7 +2,7 @@ apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
-  - image: netologygroup/mqtt-gateway
+  - image: foxford/mqtt-gateway
     docker:
       dockerfile: docker/Dockerfile
   tagPolicy:
