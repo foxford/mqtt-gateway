@@ -673,7 +673,7 @@ handle_publish_broker_dynsub_create_request(
     %% Subscribe the agent to the app's topic and send a success response
     App = mqttgw_id:format_account_id(AgentId),
     Data = #{app => App, object => Object, version => Version},
-    Topic = case IsBroadcast of
+    {Topic, QoS} = case IsBroadcast of
         false ->
             mqttgw_dyn_srv:authz_subscription_topic(Data);
         true ->
@@ -681,7 +681,7 @@ handle_publish_broker_dynsub_create_request(
     end,
     DynsubRespData = {CorrData, RespTopic, ?BROKER_CONNECTION,
                         BrokerId, UniqueId, SessionPairId, Time},
-    mqttgw_dyn_srv:create_dynsub(Subject, Topic, DynsubRespData).
+    mqttgw_dyn_srv:create_dynsub(Subject, Topic, QoS, DynsubRespData).
 
 -spec handle_publish_broker_dynsub_delete_request(
     binary(), mqttgw_dynsub:object(), mqttgw_dynsub:subject(),
