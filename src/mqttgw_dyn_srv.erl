@@ -7,7 +7,7 @@
 ]).
 
 -export([
-    start/0, stop/0, create_dynsub/3,
+    start/0, stop/0, create_dynsub/4,
     authz_subscription_topic/1, authz_broadcast_subscription_topic/1,
     delete_dynsub/4, delete_dynsub/2
 ]).
@@ -15,7 +15,7 @@
 start() -> gen_server:start_link({global, {?MODULE, node()}}, ?MODULE, [], []).
 stop() -> gen_server:stop({global, {?MODULE, node()}}).
 
-create_dynsub(Subject, Topic, DynsubRespData) ->
+create_dynsub(Subject, Topic, QoS, DynsubRespData) ->
     CurrentNode = node(),
     case vmq_subscriber_db:read({[], Subject}) of
         %% no subject in subscriber_db, so we got nobody to subscribe to a given topic
@@ -35,12 +35,12 @@ create_dynsub(Subject, Topic, DynsubRespData) ->
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
             error_logger:info_msg("Single node sub: ~p ~p", [Subject, Topic]),
-            register_dynsub(Node, Subject, Topic, DynsubRespData),
+            register_dynsub(Node, Subject, Topic, QoS, DynsubRespData),
             ok;
         %% Subject is on a different node, we need to create dynsub on that node.
         [{Node, _, _Subs}] ->
             error_logger:info_msg("Multi node sub: ~p ~p", [Subject, Topic]),
-            register_dynsub(Node, Subject, Topic, DynsubRespData),
+            register_dynsub(Node, Subject, Topic, QoS, DynsubRespData),
             ok
     end.
 
@@ -72,10 +72,10 @@ delete_dynsub(Subject, Data, DynsubRespData, Topic) ->
             ok
     end.
 
-register_dynsub(Node, Subject, Topic, DynsubRespData) ->
+register_dynsub(Node, Subject, Topic, QoS, DynsubRespData) ->
     gen_server:cast(
         {global, {?MODULE, Node}},
-        {register_dynsub, Subject, Topic, DynsubRespData, node()}
+        {register_dynsub, Subject, Topic, QoS, DynsubRespData, node()}
     ).
 
 register_dynsub_creation_in_progress(Node, Subject, Topic, DynsubRespData) ->
@@ -96,23 +96,28 @@ register_dynsub_removal_in_progress(Node, Subject, Topic, Data, DynsubRespData) 
         {register_dynsub_removal_in_progress, Subject, Topic, Data, DynsubRespData}
     ).
 
--spec authz_subscription_topic(mqttgw_dynsub:data()) -> mqttgw:topic().
+-spec authz_subscription_topic(mqttgw_dynsub:data()) -> {mqttgw:topic(), mqttgw:qos()}.
 authz_subscription_topic(Data) ->
     #{app := App,
       object := Object,
       version := Version} = Data,
-    [<<"apps">>, App, <<"api">>, Version | Object].
+    {
+        [<<"apps">>, App, <<"api">>, Version | Object],
+        1
+    }.
 
--spec authz_broadcast_subscription_topic(mqttgw_dynsub:data()) -> mqttgw:topic().
+-spec authz_broadcast_subscription_topic(mqttgw_dynsub:data()) -> {mqttgw:topic(), mqttgw:qos()}.
 authz_broadcast_subscription_topic(Data) ->
     #{app := App,
       object := Object,
       version := Version} = Data,
-    [<<"broadcasts">>, App, <<"api">>, Version | Object].
+    {
+        [<<"broadcasts">>, App, <<"api">>, Version | Object],
+        0
+    }.
 
--spec create_sub(mqttgw_dynsub:subject(), mqttgw_dynsub:topic()) -> ok.
-create_sub(Subject, Topic) ->
-    QoS = 1,
+-spec create_sub(mqttgw_dynsub:subject(), mqttgw_dynsub:topic(), mqttgw:qos()) -> ok.
+create_sub(Subject, Topic, QoS) ->
     mqttgw_broker:subscribe(Subject, [{Topic, QoS}]),
 
     error_logger:info_msg(
@@ -138,9 +143,9 @@ init([]) ->
     State = #{event_handler => EHandler, subs_queue => #{}, removals_queue => #{}},
     {ok, State}.
 
-handle_cast({register_dynsub, Subject, Topic, DynsubRespData, From}, State) ->
+handle_cast({register_dynsub, Subject, Topic, QoS, DynsubRespData, From}, State) ->
     register_dynsub_creation_in_progress(From, Subject, Topic, DynsubRespData),
-    create_sub(Subject, Topic),
+    create_sub(Subject, Topic, QoS),
     {noreply, State};
 handle_cast(
     {register_dynsub_creation_in_progress, Subject, Topic, DynsubRespData},
