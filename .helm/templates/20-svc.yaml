@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-loadbalancer-internal
+  labels:
+    k8s-app: {{ .Chart.Name }}
+spec:
+  selector:
+    app: {{ .Chart.Name }}
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  type: LoadBalancer
+  ports:
+{{- range $ports := .Values.app.svc_ports }}
+    - protocol: {{ $ports.protocol }}
+      port: {{ $ports.port }}
+      targetPort: {{ $ports.targetPort }}
+      name: {{ $ports.name }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-loadbalancer
+  labels:
+    k8s-app: {{ .Chart.Name }}
+spec:
+  selector:
+    app: {{ .Chart.Name }}
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  type: LoadBalancer
+  ports:
+{{- range $ports := .Values.app.svc_ports }}
+    - protocol: {{ $ports.protocol }}
+      port: {{ $ports.port }}
+      targetPort: {{ $ports.targetPort }}
+      name: {{ $ports.name }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-headless
+spec:
+  selector:
+    app: {{ .Chart.Name }}
+  clusterIP: None

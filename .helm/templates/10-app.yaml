@@ -1,0 +1,61 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Chart.Name }}
+{{- if eq .Values.werf.env "production" }}
+  annotations:
+    "werf.io/replicas-on-creation": {{ pluck .Values.werf.env .Values.app.hpa.min_replicas | first | default .Values.app.hpa.min_replicas._default }}
+{{- end }}
+spec:
+{{- if eq .Values.werf.env "production" }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 50%
+{{- end }}
+  serviceName: {{ .Chart.Name }}-headless
+  replicas: {{ pluck .Values.werf.env .Values.app.hpa.min_replicas | first | default .Values.app.hpa.min_replicas._default }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      annotations:
+        checksum/app-config: {{ include (print $.Template.BasePath "/09-app-cm.yaml") . | sha256sum }}
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      serviceAccountName: {{ .Chart.Name }}
+      imagePullSecrets:
+      - name: registrysecret
+{{- include "affinity" . | indent 6 }}
+      initContainers:
+      - name: copy-config-from-volumes
+        image: busybox
+        imagePullPolicy: IfNotPresent
+{{- include "init_app_resources" . | indent 8 }}
+        command:
+        - "sh"
+        - "-c"
+        - "cp /config-tmp/* /config"
+        volumeMounts:
+{{- include "init_volumeMounts" . | indent 8 }}
+      containers:
+      - name: mqtt-gateway
+        image: {{ .Values.werf.image.app }}
+        imagePullPolicy: IfNotPresent
+{{- include "app_resources" . | indent 8 }}
+        env:
+{{- include "app_envs" . | indent 8 }}
+{{- include "app_probes" . | indent 8 }}
+        ports:
+{{- range $ports := .Values.app.svc_ports }}
+        - containerPort: {{ $ports.targetPort }}
+          name: {{ $ports.name }}
+{{- end }}
+        volumeMounts:
+{{- include "volumeMounts" . | indent 8 }}
+      volumes:
+{{- include "volumes" . | indent 6 }}
