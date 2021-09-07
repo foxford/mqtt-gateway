@@ -1,4 +1,3 @@
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -22,8 +21,6 @@ spec:
       app: {{ .Chart.Name }}
   template:
     metadata:
-      annotations:
-        checksum/app-config: {{ include (print $.Template.BasePath "/09-app-cm.yaml") . | sha256sum }}
       labels:
         app: {{ .Chart.Name }}
     spec:

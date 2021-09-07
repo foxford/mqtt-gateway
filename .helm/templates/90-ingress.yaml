@@ -16,14 +16,14 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: {{ .Chart.Name }}-loadbalancer
+            name: {{ .Chart.Name }}-headless
             port:
               name: http-standart
       - path: /status
         pathType: Prefix
         backend:
           service:
-            name: {{ .Chart.Name }}-loadbalancer
+            name: {{ .Chart.Name }}-headless
             port:
               name: metrics
   tls:

@@ -1,18 +1,3 @@
-{{- define "volumes" }}
-- name: config
-  emptyDir: {}
-- name: data
-  emptyDir: {}
-- name: config-tmp
-  configMap:
-    name: {{ .Chart.Name }}-config
-- name: tls
-  secret:
-    secretName: tls-certificates
-- name: svc
-  secret:
-    secretName: svc-pem-credentials
-{{- end }}
 {{- define "init_volumeMounts" }}
 - name: config-tmp
   mountPath: /config-tmp/vernemq.conf
@@ -37,4 +22,19 @@
 - name: svc
   mountPath: /app/data/keys/svc.public_key.pem
   subPath: svc.public_key
+{{- end }}
+{{- define "volumes" }}
+- name: config
+  emptyDir: {}
+- name: data
+  emptyDir: {}
+- name: config-tmp
+  configMap:
+    name: {{ .Chart.Name }}-config
+- name: tls
+  secret:
+    secretName: tls-certificates
+- name: svc
+  secret:
+    secretName: svc-pem-credentials
 {{- end }}
