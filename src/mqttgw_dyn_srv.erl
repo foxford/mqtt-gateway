@@ -251,7 +251,7 @@ handle_info(Event,
 
 handle_event(Handler, Event, SubsQueue, RemsQueue) ->
     case Handler(Event) of
-        {update, {_MountPoint, AgentId}, [{_Node, _, OldSubs}], [{_Node, _, NewSubs}]} ->
+        {update, {_MountPoint, AgentId}, [{_Node1, _, OldSubs}], [{_Node2, _, NewSubs}]} ->
             NewSubsQueue = case maps:find(AgentId, SubsQueue) of
                 error ->
                     SubsQueue;
