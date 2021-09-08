@@ -45,7 +45,7 @@
     on_client_gone/1
 ]).
 
--export([send_dynsub_response/7, send_dynsub_multicast_event/8]).
+-export([send_dynsub_response/7, send_dynsub_response/9, send_dynsub_multicast_event/8]).
 -export([
     parse_agent_id/1, parse_connection_mode/1, format_session_id/2,
     validate_message_properties/3,
@@ -1626,6 +1626,17 @@ delete_client_dynsubs(Subject, BrokerConn, BrokerId, UniqueId, SessionPairId, Ti
 send_dynsub_response(
     CorrData, RespTopic,
     SenderConn, SenderId, UniqueId, SessionPairId, Time) ->
+    send_dynsub_response(
+    CorrData, RespTopic,
+    SenderConn, SenderId, UniqueId, SessionPairId, Time, 200, #{}).
+
+-spec send_dynsub_response(
+    binary(), binary(), connection(), mqttgw_id:agent_id(),
+    binary(), binary(), non_neg_integer(), non_neg_integer(), binary())
+    -> ok.
+send_dynsub_response(
+    CorrData, RespTopic,
+    SenderConn, SenderId, UniqueId, SessionPairId, Time, Status, Payload) ->
     #connection{mode=Mode} = SenderConn,
 
     QoS = 1,
@@ -1635,14 +1646,14 @@ send_dynsub_response(
             mqttgw_id:format_account_id(SenderId)),
         envelope(
             #message{
-                payload = jsx:encode(#{}),
+                payload = jsx:encode(Payload),
                 properties =
                     validate_message_properties(
                         update_message_properties(
                             #{p_correlation_data => CorrData,
                               p_user_property =>
                                 [ {<<"type">>, <<"response">>},
-                                  {<<"status">>, <<"200">>} ]},
+                                  {<<"status">>, integer_to_binary(Status)} ]},
                             SenderConn,
                             SenderId,
                             SenderId,
