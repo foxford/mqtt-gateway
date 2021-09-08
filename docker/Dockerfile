@@ -1,17 +1,15 @@
 ## -----------------------------------------------------------------------------
 ## Build
 ## -----------------------------------------------------------------------------
-FROM erlang:21-alpine as build-stage
+FROM erlang:24-slim as build-stage
 
-RUN set -xe \
-    && echo "http://dl-cdn.alpinelinux.org/alpine/v3.9/main" >> /etc/apk/repositories \
-    && apk add --update \
-        ca-certificates \
-        libcrypto1.1 \
-        curl \
-        perl \
-        git \
-        make
+RUN apt update && apt install -y --no-install-recommends \
+    ca-certificates \
+    build-essential \
+    libssl-dev \
+    git \
+    curl \
+    perl
 
 WORKDIR "/build"
 COPY . .
@@ -20,14 +18,7 @@ RUN make app && make rel
 ## -----------------------------------------------------------------------------
 ## App
 ## -----------------------------------------------------------------------------
-FROM foxford/vernemq:1.11.0
-
-USER root
-
-RUN set -xe \
-    && echo "http://dl-cdn.alpinelinux.org/alpine/v3.9/main" >> /etc/apk/repositories \
-    && apk add --update \
-        libcrypto1.1
+FROM foxford/vernemq:1.12.3
 
 RUN mkdir /etc/vernemq
 COPY --from=build-stage "/build/_rel/mqttgw" "/app/mqttgw/"
