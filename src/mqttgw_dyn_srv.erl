@@ -21,17 +21,33 @@ create_dynsub(Subject, Topic, QoS, DynsubRespData) ->
         %% no subject in subscriber_db, so we got nobody to subscribe to a given topic
         undefined ->
             error_logger:error_msg(
-                "Error on publish: subject was not in vmq_subscriber_db, topic: ~p",
+                "Error on publish: subject ~p was not in vmq_subscriber_db, topic: ~p",
                 [Subject, Topic]),
-            {error, #{reason_code => impl_specific_error}};
+
+            {CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time} = DynsubRespData,
+
+            mqttgw:send_dynsub_response(
+                CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time, 404,
+                jsx:encode(#{reason => <<"Subject was not in vmq_subscriber_db">>})
+            );
         %% if the subject is subscribed on multiple nodes something went wrong
         %% since we disallow same agent ids
         NodeSubs when length(NodeSubs) > 1 ->
             error_logger:error_msg(
-                "Error on publish: subject was subscribed to "
-                "multiple nodes simultaneously, topic: ~p",
-                [Topic]),
-            {error, #{reason_code => impl_specific_error}};
+                "Error on publish: subject ~p was subscribed to "
+                "multiple nodes simultaneously, topic: ~p, node_subs: ~p",
+                [Subject, Topic, NodeSubs]),
+
+            {CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time} = DynsubRespData,
+
+            mqttgw:send_dynsub_response(
+                CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time, 422,
+                jsx:encode(#{reason => <<"Subject was subscribed to multiple nodes simultaneously">>})
+            );
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
             error_logger:info_msg("Single node sub: ~p ~p", [Subject, Topic]),
@@ -51,17 +67,33 @@ delete_dynsub(Subject, Data, DynsubRespData, Topic) ->
         %% no subject in subscriber_db, so we got nobody to subscribe to a given topic
         undefined ->
             error_logger:error_msg(
-                "Error on publish: subject was not in vmq_subscriber_db, subject: ~p, data: ~p",
-                [Subject, Data]),
-            {error, #{reason_code => impl_specific_error}};
+                "Error on publish: subject ~p was not in vmq_subscriber_db, data: ~p, topic: ~p",
+                [Subject, Data, Topic]),
+
+            {CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time} = DynsubRespData,
+
+            mqttgw:send_dynsub_response(
+                CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time, 404,
+                #{reason => <<"Subject was not in vmq_subscriber_db">>}
+            );
         %% if the subject is subscribed on multiple nodes something went wrong
         %% since we disallow same agent ids
         NodeSubs when length(NodeSubs) > 1 ->
             error_logger:error_msg(
-                "Error on publish: subject was subscribed to "
-                "multiple nodes simultaneously, data: ~p",
-                [Data]),
-            {error, #{reason_code => impl_specific_error}};
+                "Error on publish: subject ~p was subscribed to "
+                "multiple nodes simultaneously, data: ~p, topic: ~p, node_subs: ~p",
+                [Subject, Data, Topic, NodeSubs]),
+
+            {CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time} = DynsubRespData,
+
+            mqttgw:send_dynsub_response(
+                CorrData, RespTopic, SenderConn, SenderId,
+                UniqueId, SessionPairId, Time, 422,
+                #{reason => <<"Subject was subscribed to multiple nodes simultaneously">>}
+            );
         %% happy case when subject is on the same node as we are
         [{Node, _, _Subs}] when Node == CurrentNode ->
             remove_dynsub(Node, Subject, Topic, Data, DynsubRespData),
