@@ -1,62 +1,4 @@
 app:
-  host:
-    _default: mqtt-lb.svc.netology-group.services
-  config: "/app/App.toml"
-  authn_enabled: 1
-  authz_enabled: 1
-  dynsub_enabled: 1
-  stat_enabled: 1
-  rate_limit_enabled: 1
-  docker_vernemq_discovery_kubernetes: 0
-  svc_ports:
-  - protocol: TCP
-    port: 58883
-    targetPort: 8883
-    name: mqtts
-  - protocol: TCP
-    port: 51883
-    targetPort: 1883
-    name: mqtt
-  - protocol: TCP
-    port: 58888
-    targetPort: 8888
-    name: metrics
-  - protocol: TCP
-    port: 443
-    targetPort: 8443
-    name: https-standart
-  - protocol: TCP
-    port: 80
-    targetPort: 8080
-    name: http-standart
-
-
-
-
-
-
-
-
-
-
-  init_resources:
-    requests:
-      cpu:
-        _default: 0.3
-      memory:
-        _default: 50Mi
-    limits:
-      memory:
-        _default: 200Mi
-  resources:
-    requests:
-      cpu:
-        _default: 1
-      memory:
-        _default: 1000Mi
-    limits:
-      memory:
-        _default: 1000Mi
   hpa:
     min_replicas:
       _default: "2"
@@ -64,3 +6,27 @@ app:
       _default: "4"
     average_utilization:
       _default: "80"
+  init_resources:
+    cpu:
+      ng:
+        classroom:
+          _default: 0.3
+    memory:
+      ng:
+        classroom:
+          _default: 50Mi
+  resources:
+    cpu:
+      ng:
+        classroom:
+          _default: 1
+          production: 10
+          staging01: 10
+          testing01: 10
+    memory:
+      ng:
+        classroom:
+          _default: 1Gi
+          production: 18Gi
+          staging01: 10Gi
+          testing01: 10Gi

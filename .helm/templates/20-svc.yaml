@@ -1,7 +1,10 @@
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Chart.Name }}-loadbalancer-internal
+  annotations:
+    service.beta.kubernetes.io/openstack-internal-load-balancer: "true"
   labels:
     app: {{ .Chart.Name }}
 spec:
@@ -10,10 +13,9 @@ spec:
   type: LoadBalancer
   ports:
 {{- range $ports := .Values.app.svc_ports }}
-    - protocol: {{ $ports.protocol }}
+    - name: {{ $ports.name }}
       port: {{ $ports.port }}
       targetPort: {{ $ports.targetPort }}
-      name: {{ $ports.name }}
 {{- end }}
 ---
 apiVersion: v1
@@ -28,24 +30,26 @@ spec:
   type: LoadBalancer
   ports:
 {{- range $ports := .Values.app.svc_ports }}
-    - protocol: {{ $ports.protocol }}
+    - name: {{ $ports.name }}
       port: {{ $ports.port }}
       targetPort: {{ $ports.targetPort }}
-      name: {{ $ports.name }}
 {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Chart.Name }}-headless
+  labels:
+    prometheus.deckhouse.io/custom-target: {{ .Chart.Name }}
+  annotations:
+    prometheus.deckhouse.io/path: "/status"
 spec:
   selector:
     app: {{ .Chart.Name }}
   clusterIP: None
   ports:
 {{- range $ports := .Values.app.svc_ports }}
-    - protocol: {{ $ports.protocol }}
+    - name: {{ $ports.name }}
       port: {{ $ports.port }}
       targetPort: {{ $ports.targetPort }}
-      name: {{ $ports.name }}
 {{- end }}

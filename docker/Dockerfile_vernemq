@@ -1,0 +1,17 @@
+FROM erlang:21-alpine as build-stage
+
+RUN apk --update add ca-certificates libcrypto1.1 git wget curl snappy-dev make gcc g++ bsd-compat-headers openssl openssl-dev
+RUN git clone -q --branch 1.10.4.1 https://github.com/vernemq/vernemq.git
+WORKDIR vernemq
+RUN make rel
+
+
+FROM alpine:3.9
+
+RUN apk --update add ncurses-libs snappy bash jq curl
+COPY --from=build-stage "/vernemq/_build/default/rel/vernemq/" "/vernemq/"
+ENV PATH="/vernemq/bin:${PATH}"
+COPY --chown=10000:10000 vm.args /vernemq/etc/vm.args
+COPY --chown=10000:10000 vernemq.sh /usr/sbin/start_vernemq
+RUN chmod a+x /usr/sbin/start_vernemq
+CMD ["start_vernemq"]

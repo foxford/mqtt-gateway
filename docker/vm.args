@@ -1,0 +1,15 @@
++P 256000
+-env ERL_MAX_ETS_TABLES 256000
+-env ERL_CRASH_DUMP /erl_crash.dump
+-env ERL_FULLSWEEP_AFTER 0
+-env ERL_MAX_PORTS 262144
++A 64
+-name VerneMQ@127.0.0.1
++K true
++sbt db
++sbwt very_long
++swt very_low
++sub true
++Mulmbcs 32767
++Mumbcgs 1
++Musmbcs 2047
