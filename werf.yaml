@@ -2,8 +2,5 @@
 project: mqtt-gateway
 configVersion: 1
 ---
-image: vernemq
-dockerfile: "docker/Dockerfile_vernemq"
----
 image: app
 dockerfile: "docker/Dockerfile_app"
