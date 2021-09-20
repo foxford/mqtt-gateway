@@ -29,6 +29,7 @@ spec:
       imagePullSecrets:
       - name: registrysecret
 {{- include "affinity" . | indent 6 }}
+### Init Container use, because kubernetes configmap work in RO mode, but entrypoint of vernemq need to change some params in config file
       initContainers:
       - name: copy-config-from-volumes
         image: busybox

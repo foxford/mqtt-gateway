@@ -1,4 +1,17 @@
 app:
+  message_count:
+    ng:
+      classroom:
+        _default: 30
+        production: 30
+        staging01: 30
+        testing01: 100
+        testing02: 100
+        testing03: 100
+  byte_count:
+    ng:
+      classroom:
+        _default: 102400
   hpa:
     min_replicas:
       _default: "2"
@@ -20,13 +33,17 @@ app:
       ng:
         classroom:
           _default: 1
-          production: 10
+          production: 32
           staging01: 10
           testing01: 10
+          testing02: 10
+          testing03: 10
     memory:
       ng:
         classroom:
           _default: 1Gi
-          production: 18Gi
+          production: 32Gi
           staging01: 10Gi
           testing01: 10Gi
+          testing02: 10Gi
+          testing03: 10Gi

@@ -22,7 +22,7 @@
 - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
   value: {{ pluck .Values.werf.env .Values.app.docker_vernemq_discovery_kubernetes | first | default .Values.app.docker_vernemq_discovery_kubernetes._default }}
 - name: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
-  value: {{ .Chart.Name }}
+  value: "app={{ .Chart.Name }}"
 - name: DOCKER_VERNEMQ_DISTRIBUTED_COOKIE
   value: {{ pluck .Values.werf.env .Values.app.docker_vernemq_distributed_cookie | first | default .Values.app.docker_vernemq_distributed_cookie._default }}
 {{- end }}
