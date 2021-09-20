@@ -25,7 +25,6 @@ spec:
       labels:
         app: {{ .Chart.Name }}
     spec:
-      serviceAccountName: {{ .Chart.Name }}
       imagePullSecrets:
       - name: registrysecret
 {{- include "affinity" . | indent 6 }}
