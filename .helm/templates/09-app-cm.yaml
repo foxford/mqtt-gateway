@@ -17,7 +17,7 @@ data:
     [authn.{{ pluck .Values.werf.env .Values.app.authn.ident | first | default .Values.app.authn.ident._default | quote }}]
     audience = [{{ pluck .Values.werf.env .Values.app.authn.audience | first | default .Values.app.authn.audience._default | quote }}]
     algorithm = {{ pluck .Values.werf.env .Values.app.authn.algorithm | first | default .Values.app.authn.algorithm._default | quote }}
-    key = {{ pluck .Values.werf.env .Values.app.authn.key | first | default .Values.app.authn.key._default | quote }}
+    key = {{ printf "/app/%s" (pluck .Values.werf.env .Values.app.authn.key | first | default .Values.app.authn.key._default) }}
     
     [authz.{{ pluck .Values.werf.env .Values.app.authz.ident | first | default .Values.app.authz.ident._default | quote }}]
     type = {{ pluck .Values.werf.env .Values.app.authz.type | first | default .Values.app.authz.type._default | quote }}
@@ -27,8 +27,11 @@ data:
     {{- $v | quote -}}
     {{- end -}}
     ]
+
 {{- range $tenant := .Values.app.tenants }}
 
+{{- if hasPrefix "production" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authn.ident | first) }}
     ##
     ## {{ $tenant.name }}
     ##
@@ -40,7 +43,40 @@ data:
     {{- end -}}
     ]
     algorithm = {{ pluck $.Values.werf.env $tenant.authn.algorithm | first | default $tenant.authn.algorithm._default | quote }}
-    key = {{ pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default | quote }}
+    key = {{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default) }}
+{{- end }}
+{{- else if hasPrefix "staging" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authn.ident | first) }}
+    ##
+    ## {{ $tenant.name }}
+    ##
+    [authn.{{ pluck $.Values.werf.env $tenant.authn.ident | first | default $tenant.authn.ident._default | quote }}]
+    audience = [
+    {{- range $k, $v := (pluck $.Values.werf.env $tenant.authn.audience | first | default $tenant.authn.audience._default) }}
+    {{- if $k }}, {{ end }}
+    {{- $v | quote -}}
+    {{- end -}}
+    ]
+    algorithm = {{ pluck $.Values.werf.env $tenant.authn.algorithm | first | default $tenant.authn.algorithm._default | quote }}
+    key = {{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default) }}
+{{- end }}
+{{- else if hasPrefix "testing" $.Values.werf.env }}
+{{- if (pluck $.Values.werf.env $tenant.authn.ident | first) }}
+    ##
+    ## {{ $tenant.name }}
+    ##
+    [authn.{{ pluck $.Values.werf.env $tenant.authn.ident | first | default $tenant.authn.ident._default | quote }}]
+    audience = [
+    {{- range $k, $v := (pluck $.Values.werf.env $tenant.authn.audience | first | default $tenant.authn.audience._default) }}
+    {{- if $k }}, {{ end }}
+    {{- $v | quote -}}
+    {{- end -}}
+    ]
+    algorithm = {{ pluck $.Values.werf.env $tenant.authn.algorithm | first | default $tenant.authn.algorithm._default | quote }}
+    key = {{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default) }}
+{{- end }}
+{{- end }}
+
 {{- end }}
 
   vernemq.conf: |
