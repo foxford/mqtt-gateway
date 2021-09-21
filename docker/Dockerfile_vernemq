@@ -1,14 +1,42 @@
-FROM erlang:21-alpine as build-stage
+## -----------------------------------------------------------------------------
+## Build
+## -----------------------------------------------------------------------------
+FROM erlang:21-slim as build-stage
 
-RUN apk --update add ca-certificates libcrypto1.1 git wget curl snappy-dev make gcc g++ bsd-compat-headers openssl openssl-dev
-RUN git clone -q --branch 1.10.4.1 https://github.com/vernemq/vernemq.git
+RUN apt update && apt install -y --no-install-recommends \
+    ca-certificates \
+    pkg-config \
+    build-essential \
+    libbsd-dev \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libsnappy-dev \
+    git \
+    wget \
+    curl
+
+RUN git clone -q --branch 1.11.0 https://github.com/vernemq/vernemq.git
 WORKDIR vernemq
 RUN make rel
 
+## -----------------------------------------------------------------------------
+## Package
+## -----------------------------------------------------------------------------
+FROM debian:buster
 
-FROM alpine:3.9
+# Install runtime dependencies.
+RUN apt update && apt install -y --no-install-recommends \
+  ca-certificates \
+  libssl1.1 \
+  libtinfo5 \
+  lib32ncurses6 \
+  libsnappy1v5 \
+  libcurl4 \
+  libleveldb1d \
+  jq \
+  curl
+# jq and curl are used by the start_vernemq script.
 
-RUN apk --update add ncurses-libs snappy bash jq curl
 COPY --from=build-stage "/vernemq/_build/default/rel/vernemq/" "/vernemq/"
 ENV PATH="/vernemq/bin:${PATH}"
 COPY --chown=10000:10000 vm.args /vernemq/etc/vm.args
