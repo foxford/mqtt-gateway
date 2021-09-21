@@ -25,7 +25,7 @@
   subPath: public_key
 {{- range $tenant := .Values.app.tenants }}
 - name: {{ $tenant.name | lower }}
-  mountPath: {{ pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default }}
+  mountPath: {{ printf "/app/%s" (pluck $.Values.werf.env $tenant.authn.key | first | default $tenant.authn.key._default) }}
   subPath: public_key
 {{- end }}
 {{- end }}
