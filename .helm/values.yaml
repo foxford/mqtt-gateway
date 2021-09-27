@@ -35,7 +35,7 @@ app:
           _default: 1
           production: 32
           staging01: 10
-          testing01: 10
+          testing01: 1
           testing02: 10
           testing03: 10
     memory:
@@ -44,6 +44,6 @@ app:
           _default: 1Gi
           production: 32Gi
           staging01: 10Gi
-          testing01: 10Gi
+          testing01: 1Gi
           testing02: 10Gi
           testing03: 10Gi
