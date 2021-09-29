@@ -42,7 +42,6 @@ metadata:
   labels:
     prometheus.deckhouse.io/custom-target: {{ .Chart.Name }}
   annotations:
-    prometheus.deckhouse.io/path: "/status"
 spec:
   selector:
     app: {{ .Chart.Name }}
