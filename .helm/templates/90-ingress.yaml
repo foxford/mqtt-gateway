@@ -19,6 +19,13 @@ spec:
             name: {{ .Chart.Name }}-headless
             port:
               name: http-standart
+      - path: /status
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Chart.Name }}-headless
+            port:
+              name: http-metrics
   tls:
   - hosts:
     - {{ pluck .Values.werf.env .Values.app.host | first | default .Values.app.host._default }}
