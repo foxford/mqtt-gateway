@@ -32,18 +32,28 @@ app:
     cpu:
       ng:
         classroom:
-          _default: 1
-          production: 32
+          _default: 0.2
+          production: 46
           staging01: 10
-          testing01: 1
-          testing02: 10
-          testing03: 10
+          testing01: 0.2
+          testing02: 0.2
+          testing03: 0.2
     memory:
-      ng:
-        classroom:
-          _default: 1Gi
-          production: 32Gi
-          staging01: 10Gi
-          testing01: 1Gi
-          testing02: 10Gi
-          testing03: 10Gi
+      requests:
+        ng:
+          classroom:
+            _default: 400Mi
+            production: 82Gi
+            staging01: 10Gi
+            testing01: 400Mi
+            testing02: 400Mi
+            testing03: 400Mi
+      limits:
+        ng:
+          classroom:
+            _default: 10Gi
+            production: 82Gi
+            staging01: 10Gi
+            testing01: 10Gi
+            testing02: 10Gi
+            testing03: 10Gi
