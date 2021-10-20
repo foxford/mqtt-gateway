@@ -25,6 +25,8 @@ spec:
       labels:
         app: {{ .Chart.Name }}
     spec:
+      priorityClassName: mqtt-gateway-priority
+      serviceAccountName: mqtt-gateway
       imagePullSecrets:
       - name: registrysecret
 {{- include "affinity" . | indent 6 }}
