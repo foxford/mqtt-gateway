@@ -1528,27 +1528,21 @@ parse_connection_params(ClientId, Properties) ->
 
 -spec parse_agent_id(binary()) -> mqttgw_id:agent_id().
 parse_agent_id(Val) ->
-    parse_agent_label(Val, <<>>).
+    parse_agent_label(Val).
 
--spec parse_agent_label(binary(), binary()) -> mqttgw_id:agent_id().
-parse_agent_label(<<$., _/bits>>, <<>>) ->
-    error(missing_agent_label);
-parse_agent_label(<<$., R/bits>>, Acc) ->
-    parse_account_label(R, Acc, <<>>);
-parse_agent_label(<<C, R/bits>>, Acc) ->
-    parse_agent_label(R, <<Acc/bits, C>>);
-parse_agent_label(<<>>, Acc) ->
-    error({bad_agent_label, [Acc]}).
+-spec parse_agent_label(binary()) -> mqttgw_id:agent_id().
+parse_agent_label(AgentId) ->
+    case binary:split(AgentId, <<".">>) of
+        [_] -> error(bad_agent_label);
+        [AgentLabel, AccountId] -> parse_account_label(AccountId, AgentLabel)
+    end.
 
--spec parse_account_label(binary(), binary(), binary()) -> mqttgw_id:agent_id().
-parse_account_label(<<$., _/bits>>, _AgentLabel, <<>>) ->
-    error(missing_account_label);
-parse_account_label(<<$., R/bits>>, AgentLabel, Acc) ->
-    parse_audience(R, AgentLabel, Acc);
-parse_account_label(<<C, R/bits>>, AgentLabel, Acc) ->
-    parse_account_label(R, AgentLabel, <<Acc/binary, C>>);
-parse_account_label(<<>>, AgentLabel, Acc) ->
-    error({bad_account_label, [AgentLabel, Acc]}).
+-spec parse_account_label(binary(), binary()) -> mqttgw_id:agent_id().
+parse_account_label(AccountId, AgentLabel) ->
+    case binary:split(AccountId, <<".">>) of
+        [_] -> error(bad_account_label);
+        [AccountLabel, Audience] -> parse_audience(Audience, AgentLabel, AccountLabel)
+    end.
 
 -spec parse_audience(binary(), binary(), binary()) -> mqttgw_id:agent_id().
 parse_audience(<<>>, _AgentLabel, _AccountLabel) ->
