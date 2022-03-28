@@ -1,0 +1,19 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mqtt-gateway.name" . }}-pdb
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "mqtt-gateway.selectorLabels" . | nindent 6 }}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "mqtt-gateway.name" . }}-priority
+value: 1000000
+globalDefault: false
+description: "This priority class allow mqtt-gateway to evict all other pods from its node."
