@@ -1,0 +1,79 @@
+# Default values for dispatcher.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+container:
+  image:
+    repository: foxford/mqtt-gateway
+    tag: ""
+
+  volumes:
+    - name: config
+      configMap:
+        name: mqtt-config
+    - name: svc
+      secret:
+        secretName: svc-secret
+
+  volumeMounts:
+    - name: config
+      mountPath: /app/App.toml
+      subPath: App.toml
+    - name: tenant
+      mountPath: /path/to/key
+      subPath: tenant.public_key
+    - mountPath: /path/to/key
+      name: svc
+      subPath: svc.public_key
+
+  resources:
+    limits:
+      cpu: 10
+      memory: 10Gi
+    requests:
+      cpu: 0.2
+      memory: 400Mi
+
+audiences:
+  svc.services:
+    authz:
+      type: local
+      trusted:
+        - http-gateway
+        - event
+        - cron
+        - conference
+        - janus-gateway
+        - tq
+        - telemetry
+        - kruonis
+        - devops
+        - dispatcher
+    authn:
+      key: /path/to/key
+  tenant:
+    authn:
+      key: /path/to/key
+  tenantless:
+    authn:
+      key: /path/to/key
+
+env:
+  APP_CONFIG: /app/App.toml
+  APP_AUTHN_ENABLED: 1
+  APP_AUTHZ_ENABLED: 1
+  APP_DYNSUB_ENABLED: 1
+  APP_STAT_ENABLED: 1
+  APP_RATE_LIMIT_ENABLED: 1
+  DOCKER_VERNEMQ_DISCOVERY_KUBERNETES: 0
+  DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app=mqtt-gateway
+
+config:
+  janus_group:
+
+ingress:
+  host: example.org
+  tls:
+    secretName: tls-certificates

@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "mqtt-gateway.name" . }}
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount | default 2 }}
+  serviceName: {{ include "mqtt-gateway.name" . }}-headless
+  selector:
+    matchLabels:
+      {{- include "mqtt-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mqtt-gateway.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      initContainers:
+        - name: copy-config-from-volumes
+          image: busybox
+          command:
+          - "sh"
+          - "-c"
+          - "cp /config-tmp/* /config"
+          volumeMounts:
+            - name: config-tmp
+              mountPath: /config-tmp/vernemq.conf
+              subPath: vernemq.conf
+            - name: config-tmp
+              mountPath: /config-tmp/App.toml
+              subPath: App.toml
+            - name: config
+              mountPath: /config
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 0.1
+              memory: 100Mi
+            requests:
+              cpu: 0.1
+              memory: 100Mi
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.container.image.repository }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: APP_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_CONFIG
+            - name: APP_AUTHN_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_AUTHN_ENABLED
+            - name: APP_AUTHZ_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_AUTHZ_ENABLED
+            - name: APP_STAT_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_STAT_ENABLED
+            - name: APP_DYNSUB_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_DYNSUB_ENABLED
+            - name: APP_RATE_LIMIT_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: APP_RATE_LIMIT_ENABLED
+            - name: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: DOCKER_VERNEMQ_DISCOVERY_KUBERNETES
+            - name: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
+              valueFrom:
+                configMapKeyRef:
+                  name: mqtt-gateway-environment
+                  key: DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR
+            - name: DOCKER_VERNEMQ_DISTRIBUTED_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-gateway-distributed-cookie
+                  key: DOCKER_VERNEMQ_DISTRIBUTED_COOKIE
+          volumeMounts:
+            {{- toYaml .Values.container.volumeMounts | nindent 12}}
+          resources:
+            {{- toYaml .Values.container.resources | nindent 12 }}
+      volumes:
+        {{- toYaml .Values.container.volumes | nindent 8}}

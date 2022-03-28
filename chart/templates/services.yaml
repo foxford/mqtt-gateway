@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mqtt-gateway.name" . }}-headless
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
+  clusterIP: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  metallb.universe.tf/address-pool: mqtt-{{ .Release.Namespace }}-internal
+  name: {{ include "mqtt-gateway.serviceName" . }}
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    - protocol: TCP
+      port: 58883
+      targetPort: 8883
+      name: mqtts
+    - protocol: TCP
+      port: 51883
+      targetPort: 1883
+      name: mqtt
+    - protocol: TCP
+      port: 58888
+      targetPort: 8888
+      name: metrics
+    - protocol: TCP
+      port: 443
+      targetPort: 8443
+      name: https-standart
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      name: http-standart
+  selector:
+    {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}

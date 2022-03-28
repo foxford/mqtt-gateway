@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+  name: {{ include "mqtt-gateway.name" . }}-config
+data:
+  App.toml: |
+    {{- $id := list (include "mqtt-gateway.name" . ) (include "mqtt-gateway.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    id = {{ $id | quote }}
+
+    [rate_limit]
+    message_count = 100
+    byte_count = 102400
+
+    {{- println "" }}
+
+    {{- range $audience, $opts := .Values.audiences }}
+    ##
+    ## {{ $audience }}
+    ##
+    {{- if eq $audience "svc.netology-group.services" }}
+    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) $audience | compact | join "." }}
+    {{- with "authn" | get $opts }}
+    [authn.{{ $svc_audience | quote }}]
+    audience = [{{ $svc_audience | quote }}]
+    algorithm = "ES256"
+    key = {{ "key" | get . | quote }}
+    {{- end }}
+    {{- else }}
+    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) "svc" $audience | compact | join "." }}
+    {{- $usr_audience := list (include "mqtt-gateway.shortNamespace" $) "usr" $audience | compact | join "." }}
+    {{- with "authn" | get $opts }}
+    [authn.{{ list "iam" $svc_audience | join "." | quote }}]
+    audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
+    algorithm = "ES256"
+    key = {{ "key" | get . | quote }}
+    {{- end }}
+    {{- end}}
+
+    {{- $ns_audience := list (include "mqtt-gateway.shortNamespace" $) $audience | compact | join "."  }}
+    {{- println "" }}
+
+    {{- with "authz" | get $opts }}
+    [authz.{{ $ns_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "http" .type }}
+    uri = {{ $ns_audience | list "http://mqtt-gateway-service:8080/api/v1/authz/" | join "" | default .uri | quote }}
+    algorithm = {{ default "ES256" .algorithm | quote }}
+    key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
+    user_agent = {{ default $id .user_agent | quote }}
+    max_retries = {{ default 3 .max_retries }}
+    {{- end }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ $ns_audience | list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- if eq "localwhitelist" .type }}
+    [[authz.{{ $ns_audience | quote }}.records]]
+    {{- range $record := .records }}
+    subject_account_id = {{ get $record "subject_account_id" | quote }}
+    object = [
+      {{- range $o := get $record "object" }}
+      {{ $o | quote }},
+      {{- end}}
+    ]
+    action = {{ get $record "action" | quote }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- println "" }}
+    {{- end }}
+  vernemq.conf: |
+    allow_anonymous = off
+    allow_register_during_netsplit = off
+    allow_publish_during_netsplit = off
+    allow_subscribe_during_netsplit = off
+    allow_unsubscribe_during_netsplit = off
+    allow_multiple_sessions = off
+    max_client_id_size = 150
+    persistent_client_expiration = never
+    retry_interval = 5
+    max_inflight_messages = 0
+    max_online_messages = -1
+    max_offline_messages = -1
+    max_message_size = 0
+    upgrade_outgoing_qos = off
+    metadata_plugin = vmq_plumtree
+    leveldb.maximum_memory.percent = 70
+    listener.tcp.buffer_sizes = 4096,16384,32768
+    listener.tcp.my_publisher_listener.buffer_sizes=4096,16384,32768
+    listener.tcp.my_subscriber_listener.buffer_sizes=4096,16384,32768
+    listener.max_connections = 10000
+    listener.nr_of_acceptors = 100
+    listener.tcp.default = 0.0.0.0:1883
+    listener.ssl.default = 0.0.0.0:8883
+    listener.ws.default = 0.0.0.0:8080
+    listener.wss.default = 0.0.0.0:8443
+    listener.tcp.allowed_protocol_versions = 3,4,5
+    listener.ssl.allowed_protocol_versions = 3,4,5
+    listener.ws.allowed_protocol_versions = 3,4,5
+    listener.wss.allowed_protocol_versions = 3,4,5
+    listener.vmq.clustering = 0.0.0.0:44053
+    listener.mountpoint = off
+    listener.ssl.certfile = /tls/tls.crt
+    listener.wss.certfile = /tls/tls.crt
+    listener.ssl.keyfile = /tls/tls.key
+    listener.wss.keyfile = /tls/tls.key
+    systree_enabled = off
+    systree_interval = 0
+    shared_subscription_policy = prefer_local
+    plugins.mqttgw = on
+    plugins.mqttgw.path = /app/mqttgw
+    plugins.vmq_passwd = off
+    plugins.vmq_acl = off
+    plugins.vmq_diversity = off
+    plugins.vmq_webhooks = off
+    plugins.vmq_bridge = off
+    vmq_acl.acl_file = /etc/vernemq/vmq.acl
+    vmq_acl.acl_reload_interval = 10
+    vmq_passwd.password_file = /etc/vernemq/vmq.passwd
+    vmq_passwd.password_reload_interval = 10
+    vmq_diversity.script_dir = /usr/share/vernemq/lua
+    vmq_diversity.auth_postgres.enabled = off
+    vmq_diversity.auth_mysql.enabled = off
+    vmq_diversity.auth_mongodb.enabled = off
+    vmq_diversity.auth_redis.enabled = off
+    log.console = console
+    log.console.level = info
+    log.syslog = off
+    log.crash = on
+    log.crash.file = /var/log/vernemq/crash.log
+    log.crash.maximum_message_size = 64KB
+    log.crash.size = 10MB
+    log.crash.rotation = $D0
+    log.crash.rotation.keep = 5
+    nodename = VerneMQ@127.0.0.1
+    erlang.async_threads = 64
+    erlang.max_ports = 262144
+    erlang.distribution_buffer_size = 32MB
