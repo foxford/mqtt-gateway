@@ -12,6 +12,13 @@ build:
     useDockerCLI: true
     tryImportMissing: true
 deploy:
-  kustomize:
-    paths:
-    - deploy/k8s/overlays/ns
+  helm:
+    releases:
+      - name: mqtt-gateway
+        chartPath: chart
+        artifactOverrides:
+          app.image: foxford/mqtt-gateway
+        imageStrategy:
+          helm: {}
+        valuesFiles:
+          - deploy/values.yaml

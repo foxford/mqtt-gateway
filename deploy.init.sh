@@ -4,6 +4,7 @@ if [[ ! ${GITHUB_TOKEN} ]]; then echo "GITHUB_TOKEN is required" 1>&2; exit 1; f
 
 PROJECT="${PROJECT:-mqtt-gateway}"
 SOURCE=${SOURCE:-"https://api.github.com/repos/netology-group/ulms-env/contents/k8s"}
+APPS_SOURCE="https://api.github.com/repos/foxford/ulms-env/contents/apps"
 BRANCH="${BRANCH:-master}"
 
 function FILE_FROM_GITHUB() {
@@ -37,29 +38,9 @@ set -ex
 
 if [[ -n ${NAMESPACE} ]]; then
     FILE_FROM_GITHUB "deploy" "${SOURCE}/certs/ca-${NAMESPACE}.crt"
-    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/s3-docs.sh"
-    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/travis-run.sh"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/kustomization.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-headless.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-cluster.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-loadbalancer-internal.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-servicemonitor.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-serviceaccount.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base/configs" "${SOURCE}/apps/deploy/${PROJECT}/base/configs/env.ini"
-    FILE_FROM_GITHUB "deploy/k8s/base/patches" "${SOURCE}/apps/deploy/${PROJECT}/base/patches/update-replica-resources.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base/patches" "${SOURCE}/apps/deploy/${PROJECT}/base/patches/environments.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/base/patches" "${SOURCE}/apps/deploy/${PROJECT}/base/patches/tenant-credentials.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/mqtt-gateway-ingress.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/mqtt-gateway-loadbalancer.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/kustomization.yaml"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/configs" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/configs/App.toml"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/configs" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/configs/vernemq.conf"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/update-replica-resources.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/tenant-credentials.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/update-mqtt-service-annotations.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/update-mqtt-service-annotations-internal.yaml" "optional"
-    FILE_FROM_GITHUB "deploy/k8s/overlays/ns/patches" "${SOURCE}/apps/deploy/${PROJECT}/overlays/${NAMESPACE}/patches/node-selector.yaml" "optional"
+
+    SHORT_NS=$(echo $NAMESPACE | sed s/-ng/-foxford/ | sed -E "s/^(.)([[:alpha:]]*)(.*)$/\1\3/")
+    FILE_FROM_GITHUB "deploy" "${APPS_SOURCE}/${SHORT_NS}/${PROJECT}/values.yaml"
 
     echo "In order to enable deployment NAMESPACE is required."
 fi
@@ -68,10 +49,10 @@ fi
 FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/ci-install-tools.sh"
 
 ## Use the same project for build & deploy scripts.
-CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh)
+CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh github-actions-run.sh)
 for FILE in ${CI_FILES[@]}; do
     FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/${FILE}"
     ADD_PROJECT "deploy/${FILE}" "${PROJECT}"
 done
 
-chmod u+x deploy/{ci-mdbook.sh,ci-build.sh,ci-deploy.sh,ci-install-tools.sh}
+chmod u+x deploy/{ci-mdbook.sh,ci-build.sh,ci-deploy.sh,ci-install-tools.sh,github-actions-run.sh}
