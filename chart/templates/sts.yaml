@@ -105,8 +105,28 @@ spec:
                   name: mqtt-gateway-distributed-cookie
                   key: DOCKER_VERNEMQ_DISTRIBUTED_COOKIE
           volumeMounts:
+            - name: config
+              mountPath: /vernemq/etc/vernemq.conf
+              subPath: vernemq.conf
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /app/App.toml
+              subPath: App.toml
+            - name: tls
+              mountPath: /tls
             {{- toYaml .Values.container.volumeMounts | nindent 12}}
           resources:
             {{- toYaml .Values.container.resources | nindent 12 }}
       volumes:
+        - name: config
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: config-tmp
+          configMap:
+            name: mqtt-gateway-config
+        - name: tls
+          secret:
+            secretName: tls-certificates
         {{- toYaml .Values.container.volumes | nindent 8}}

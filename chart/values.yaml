@@ -10,17 +10,14 @@ container:
     tag: ""
 
   volumes:
-    - name: config
-      configMap:
-        name: mqtt-config
+    - name: tenant
+      secret:
+        secretName: tenant-secret
     - name: svc
       secret:
         secretName: svc-secret
 
   volumeMounts:
-    - name: config
-      mountPath: /app/App.toml
-      subPath: App.toml
     - name: tenant
       mountPath: /path/to/key
       subPath: tenant.public_key
