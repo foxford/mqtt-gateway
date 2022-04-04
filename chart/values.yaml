@@ -34,28 +34,28 @@ container:
       memory: 400Mi
 
 audiences:
-  svc.services:
-    authz:
-      type: local
-      trusted:
-        - http-gateway
-        - event
-        - cron
-        - conference
-        - janus-gateway
-        - tq
-        - telemetry
-        - kruonis
-        - devops
-        - dispatcher
-    authn:
-      key: /path/to/key
-  tenant:
-    authn:
-      key: /path/to/key
-  tenantless:
-    authn:
-      key: /path/to/key
+#  svc.services:
+#    authz:
+#      type: local
+#      trusted:
+#        - http-gateway
+#        - event
+#        - cron
+#        - conference
+#        - janus-gateway
+#        - tq
+#        - telemetry
+#        - kruonis
+#        - devops
+#        - dispatcher
+#    authn:
+#      key: /path/to/key
+#  tenant:
+#    authn:
+#      key: /path/to/key
+#  tenantless:
+#    authn:
+#      key: /path/to/key
 
 env:
   APP_CONFIG: /app/App.toml

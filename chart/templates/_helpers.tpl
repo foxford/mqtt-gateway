@@ -18,7 +18,7 @@ Short namespace.
 */}}
 {{- define "mqtt-gateway.shortNamespace" -}}
 {{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
-{{- if eq $shortns "production" }}
+{{- if has $shortns (list "production" "p") }}
 {{- else }}
 {{- $shortns }}
 {{- end }}
