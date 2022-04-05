@@ -9,22 +9,6 @@ container:
     repository: foxford/mqtt-gateway
     tag: ""
 
-  volumes:
-    - name: tenant
-      secret:
-        secretName: tenant-secret
-    - name: svc
-      secret:
-        secretName: svc-secret
-
-  volumeMounts:
-    - name: tenant
-      mountPath: /path/to/key
-      subPath: tenant.public_key
-    - mountPath: /path/to/key
-      name: svc
-      subPath: svc.public_key
-
   resources:
     limits:
       cpu: 10
@@ -33,29 +17,27 @@ container:
       cpu: 0.2
       memory: 400Mi
 
+svc:
+  audience: svc.services
+  credentials:
+    - secret: svc-secret
+      subPath: public-key
+      mountPath: /path/to/svc/public/key
+  authz:
+    type: local
+    trusted:
+      - some-service
+  authn:
+    key: /path/to/svc/public/key
+
 audiences:
-#  svc.services:
-#    authz:
-#      type: local
-#      trusted:
-#        - http-gateway
-#        - event
-#        - cron
-#        - conference
-#        - janus-gateway
-#        - tq
-#        - telemetry
-#        - kruonis
-#        - devops
-#        - dispatcher
-#    authn:
-#      key: /path/to/key
-#  tenant:
-#    authn:
-#      key: /path/to/key
-#  tenantless:
-#    authn:
-#      key: /path/to/key
+  - audience: foo.bar
+    credentials:
+      - secret: foobar-der-credentials
+        subPath: foobar-public-key
+        mountPath: /path/to/foobar/public/key
+    authn:
+      key: /path/to/foobar/public/key
 
 env:
   APP_CONFIG: /app/App.toml
@@ -66,9 +48,6 @@ env:
   APP_RATE_LIMIT_ENABLED: 1
   DOCKER_VERNEMQ_DISCOVERY_KUBERNETES: 0
   DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app=mqtt-gateway
-
-config:
-  janus_group:
 
 ingress:
   host: example.org

@@ -115,7 +115,22 @@ spec:
               subPath: App.toml
             - name: tls
               mountPath: /tls
-            {{- toYaml .Values.container.volumeMounts | nindent 12}}
+            {{- with .Values.svc }}
+            {{- $audience := .audience }}
+            {{- range .credentials }}
+            - name: {{ printf "%s-%s-secret" $audience .secret }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.audiences }}
+            {{- $audience := .audience }}
+            {{- range .credentials }}
+            - name: {{ printf "%s-%s-secret" $audience .secret }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
           resources:
             {{- toYaml .Values.container.resources | nindent 12 }}
       volumes:
@@ -129,4 +144,19 @@ spec:
         - name: tls
           secret:
             secretName: tls-certificates
-        {{- toYaml .Values.container.volumes | nindent 8}}
+        {{- with .Values.svc }}
+        {{- $audience := .audience }}
+        {{- range .credentials }}
+        - name: {{ printf "%s-%s-secret" $audience .secret }}
+          secret:
+            secretName: {{ .secret }}
+        {{- end }}
+        {{- end }}
+        {{- range .Values.audiences }}
+        {{- $audience := .audience }}
+        {{- range .credentials }}
+        - name: {{ printf "%s-%s-secret" $audience .secret }}
+          secret:
+            secretName: {{ .secret }}
+        {{- end }}
+        {{- end }}
