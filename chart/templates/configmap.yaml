@@ -6,7 +6,7 @@ metadata:
   name: {{ include "mqtt-gateway.name" . }}-config
 data:
   App.toml: |
-    {{- $id := list (include "mqtt-gateway.name" . ) (include "mqtt-gateway.shortNamespace" .) "svc.netology-group.services" | compact | join "." }}
+    {{- $id := list (include "mqtt-gateway.name" . ) (include "mqtt-gateway.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
 
     [rate_limit]
@@ -15,33 +15,53 @@ data:
 
     {{- println "" }}
 
-    {{- range $audience, $opts := .Values.audiences }}
+    {{- with .Values.svc }}
     ##
-    ## {{ $audience }}
+    ## SVC
     ##
-    {{- if eq $audience "svc.netology-group.services" }}
-    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) $audience | compact | join "." }}
-    {{- with "authn" | get $opts }}
+    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) .audience | compact | join "." }}
+    {{- with .authn }}
     [authn.{{ $svc_audience | quote }}]
     audience = [{{ $svc_audience | quote }}]
     algorithm = "ES256"
     key = {{ "key" | get . | quote }}
     {{- end }}
-    {{- else }}
-    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) "svc" $audience | compact | join "." }}
-    {{- $usr_audience := list (include "mqtt-gateway.shortNamespace" $) "usr" $audience | compact | join "." }}
-    {{- with "authn" | get $opts }}
+
+    {{- println "" }}
+
+    {{- with .authz }}
+    [authz.{{ $svc_audience | quote }}]
+    type = {{ .type | quote }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ $svc_audience | list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
+
+    {{- println "" }}
+
+    {{- range .Values.audiences }}
+    ##
+    ## {{ .audience }}
+    ##
+    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list (include "mqtt-gateway.shortNamespace" $) "usr" .audience | compact | join "." }}
+    {{- with "authn" | get . }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
     algorithm = "ES256"
     key = {{ "key" | get . | quote }}
-    {{- end }}
     {{- end}}
 
-    {{- $ns_audience := list (include "mqtt-gateway.shortNamespace" $) $audience | compact | join "."  }}
+    {{- $ns_audience := list (include "mqtt-gateway.shortNamespace" $) .audience | compact | join "."  }}
     {{- println "" }}
 
-    {{- with "authz" | get $opts }}
+    {{- with "authz" | get . }}
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
