@@ -120,3 +120,12 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Create volumeMount name from audience and secret name
+*/}}
+{{- define "mqtt-gateway.volumeMountName" -}}
+{{- $audience := index . 0 -}}
+{{- $secret := index . 1 -}}
+{{- printf "%s-%s-secret" $audience $secret | replace "." "-" }}
+{{- end }}
