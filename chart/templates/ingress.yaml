@@ -14,11 +14,13 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          - path: {{ include "mqtt-gateway.ingressPath" . }}
+          - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(mqtt)
+            pathType: Prefix
             backend:
               serviceName: {{ include "mqtt-gateway.serviceName" $ }}
               servicePort: 80
-          - path: {{ include "mqtt-gateway.ingressPath" . }}/status
+          - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(status)
+            pathType: Prefix
             backend:
               serviceName: {{ include "mqtt-gateway.serviceName" $ }}
               servicePort: 58888
