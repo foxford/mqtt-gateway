@@ -65,7 +65,7 @@ data:
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
-    uri = {{ $ns_audience | list "http://mqtt-gateway-service:8080/api/v1/authz/" | join "" | default .uri | quote }}
+    uri = {{ default "http://mqtt-gateway-service:8080/api/v1/authz/" .uri | quote }}
     algorithm = {{ default "ES256" .algorithm | quote }}
     key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
     user_agent = {{ default $id .user_agent | quote }}

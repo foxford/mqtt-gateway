@@ -24,4 +24,3 @@ spec:
             backend:
               serviceName: {{ include "mqtt-gateway.serviceName" $ }}
               servicePort: 58888
-
