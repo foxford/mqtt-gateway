@@ -15,6 +15,7 @@ metadata:
   name: {{ include "mqtt-gateway.serviceName" . }}
   labels:
     {{- include "mqtt-gateway.labels" . | nindent 4 }}
+  {{- include "mqtt-gateway.serviceAnnotations" . }}
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
