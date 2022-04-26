@@ -64,13 +64,6 @@ data:
     {{- with "authz" | get . }}
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
-    {{- if eq "http" .type }}
-    uri = {{ default "http://mqtt-gateway-service:8080/api/v1/authz/" .uri | quote }}
-    algorithm = {{ default "ES256" .algorithm | quote }}
-    key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}
-    user_agent = {{ default $id .user_agent | quote }}
-    max_retries = {{ default 3 .max_retries }}
-    {{- end }}
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
