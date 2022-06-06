@@ -28,12 +28,12 @@ Short namespace.
 Namespace in ingress path.
 converts as follows:
 - testing01 -> t01
-- staging01-classroom-ng -> s01/classroom-ng
-- producion-webinar-ng -> webinar-ng
+- staging01-classroom-ng -> s01/classroom-foxford
+- producion-webinar-ng -> webinar-foxford
 */}}
 {{- define "mqtt-gateway.ingressPathNamespace" -}}
 {{- $ns_head := regexSplit "-" .Release.Namespace -1 | first }}
-{{- $ns_tail := regexSplit "-" .Release.Namespace -1 | rest | join "-" }}
+{{- $ns_tail := regexSplit "-" .Release.Namespace -1 | rest | join "-" | replace "ng" "foxford" }}
 {{- if has $ns_head (list "production" "p") }}
 {{- $ns_tail }}
 {{- else }}
@@ -45,7 +45,6 @@ converts as follows:
 Ingress path.
 */}}
 {{- define "mqtt-gateway.ingressPath" -}}
-{{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
 {{- list "" (include "mqtt-gateway.ingressPathNamespace" .) (include "mqtt-gateway.name" .) | join "/" }}
 {{- end }}
 
