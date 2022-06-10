@@ -154,3 +154,17 @@ data:
     erlang.async_threads = 64
     erlang.max_ports = 262144
     erlang.distribution_buffer_size = 32MB
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations: {}
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+  name: {{ include "mqtt-gateway.name" . }}-environment
+data:
+  {{- range $key, $value := .Values.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

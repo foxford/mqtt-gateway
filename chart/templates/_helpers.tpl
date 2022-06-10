@@ -9,7 +9,14 @@ Expand the name of the chart.
 Service name.
 */}}
 {{- define "mqtt-gateway.serviceName" -}}
-{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "loadbalancer" | join "-" }}
+{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "service" | join "-" }}
+{{- end }}
+
+{{/*
+External load balancer service.
+*/}}
+{{- define "mqtt-gateway.externalLoadBalancerServiceName" -}}
+{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "external-loadbalancer-service" | join "-" }}
 {{- end }}
 
 {{/*

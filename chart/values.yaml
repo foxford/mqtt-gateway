@@ -49,15 +49,10 @@ env:
   DOCKER_VERNEMQ_DISCOVERY_KUBERNETES: 0
   DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app=mqtt-gateway
 
-ingress:
-  host: example.org
-  tls:
-    secretName: tls-certificates
-
-loadBalancer:
-  enable: true
+service:
+  type: LoadBalancer
   annotations: {}
-  ports: &ports
+  ports:
     - name: mqtts
       port: 58883
       targetPort: 8883
@@ -74,7 +69,18 @@ loadBalancer:
       port: 80
       targetPort: 8080
 
-loadBalancerExternal:
+ingress:
+  host: example.org
+  tls:
+    secretName: tls-certificates
+
+externalLoadBalancer:
   enable: false
   annotations: {}
-  ports: *ports
+  ports:
+    - name: mqtt
+      port: 51883
+      targetPort: 1883
+    - name: http-standart
+      port: 80
+      targetPort: 8080
