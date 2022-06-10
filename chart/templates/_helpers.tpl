@@ -9,9 +9,8 @@ Expand the name of the chart.
 Service name.
 */}}
 {{- define "mqtt-gateway.serviceName" -}}
-{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "loadbalancer-internal" | join "-" }}
+{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "loadbalancer" | join "-" }}
 {{- end }}
-
 
 {{/*
 Short namespace.
