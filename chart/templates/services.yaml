@@ -1,13 +1,4 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "mqtt-gateway.name" . }}-headless
-  labels:
-    {{- include "mqtt-gateway.labels" . | nindent 4 }}
-spec:
-  selector:
-    {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
-  clusterIP: None
+{{- if .Values.loadBalancerExternal.enable }}
 ---
 apiVersion: v1
 kind: Service
@@ -16,7 +7,7 @@ metadata:
   labels:
     {{- include "mqtt-gateway.labels" . | nindent 4 }}
   annotations:
-    {{- with .Values.service.external.annotations }}
+    {{- with .Values.loadBalancerExternal.annotations }}
       {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
@@ -24,28 +15,16 @@ spec:
   externalTrafficPolicy: Cluster
   sessionAffinity: None
   ports:
+    {{- range $port := .Values.loadBalancerExternal.ports }}
     - protocol: TCP
-      port: 58883
-      targetPort: 8883
-      name: mqtts
-    - protocol: TCP
-      port: 51883
-      targetPort: 1883
-      name: mqtt
-    - protocol: TCP
-      port: 58888
-      targetPort: 8888
-      name: metrics
-    - protocol: TCP
-      port: 443
-      targetPort: 8443
-      name: https-standart
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
-      name: http-standart
+      port: {{ get $port "port" }}
+      targetPort: {{ get $port "targetPort" }}
+      name: {{ get $port "name" }}
+    {{- end }}
   selector:
     {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if .Values.loadBalancer.enable }}
 ---
 apiVersion: v1
 kind: Service
@@ -54,7 +33,7 @@ metadata:
   labels:
     {{- include "mqtt-gateway.labels" . | nindent 4 }}
   annotations:
-    {{- with .Values.service.internal.annotations }}
+    {{- with .Values.loadBalancer.annotations }}
       {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
@@ -62,25 +41,12 @@ spec:
   externalTrafficPolicy: Cluster
   sessionAffinity: None
   ports:
+    {{- range $port := .Values.loadBalancer.ports }}
     - protocol: TCP
-      port: 58883
-      targetPort: 8883
-      name: mqtts
-    - protocol: TCP
-      port: 51883
-      targetPort: 1883
-      name: mqtt
-    - protocol: TCP
-      port: 58888
-      targetPort: 8888
-      name: metrics
-    - protocol: TCP
-      port: 443
-      targetPort: 8443
-      name: https-standart
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
-      name: http-standart
+      port: {{ get $port "port" }}
+      targetPort: {{ get $port "targetPort" }}
+      name: {{ get $port "name" }}
+    {{- end }}
   selector:
     {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
+{{- end }}

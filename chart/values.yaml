@@ -53,3 +53,28 @@ ingress:
   host: example.org
   tls:
     secretName: tls-certificates
+
+loadBalancer:
+  enable: true
+  annotations: {}
+  ports: &ports
+    - name: mqtts
+      port: 58883
+      targetPort: 8883
+    - name: mqtt
+      port: 51883
+      targetPort: 1883
+    - name: metrics
+      port: 58888
+      targetPort: 8888
+    - name: https-standart
+      port: 443
+      targetPort: 8443
+    - name: http-standart
+      port: 80
+      targetPort: 8080
+
+loadBalancerExternal:
+  enable: false
+  annotations: {}
+  ports: *ports
