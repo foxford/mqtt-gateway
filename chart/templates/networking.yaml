@@ -10,14 +10,36 @@ metadata:
     {{- end }}
 spec:
   type: {{ .Values.service.type }}
-  externalTrafficPolicy: Cluster
-  sessionAffinity: None
   ports:
-    {{- range $port := .Values.service.ports }}
-    - protocol: TCP
-      name: {{ get $port "name" }}
-      port: {{ get $port "port" }}
-      targetPort: {{ get $port "targetPort" }}
+    {{- if .Values.service.ports.mqtts }}
+    - name: mqtts
+      port: {{ .Values.service.ports.mqtts }}
+      targetPort: 8883
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.mqtt }}
+    - name: mqtt
+      port: {{ .Values.service.ports.mqtt }}
+      targetPort: 1883
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.metrics }}
+    - name: metrics
+      port: {{ .Values.service.ports.metrics }}
+      targetPort: 8888
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.wss }}
+    - name: wss
+      port: {{ .Values.service.ports.wss }}
+      targetPort: 8443
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.service.ports.ws }}
+    - name: ws
+      port: {{ .Values.service.ports.ws }}
+      targetPort: 8080
+      protocol: TCP
     {{- end }}
   selector:
     {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
@@ -40,18 +62,22 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
+          {{- if .Values.service.ports.mqtt }}
           - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(mqtt)
             pathType: Prefix
             backend:
               serviceName: {{ include "mqtt-gateway.serviceName" $ }}
-              servicePort: 80
+              servicePort: {{ .Values.service.ports.ws }}
+          {{- end }}
+          {{- if .Values.service.ports.metrics }}
           - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(status)
             pathType: Prefix
             backend:
               serviceName: {{ include "mqtt-gateway.serviceName" $ }}
-              servicePort: 58888
+              servicePort: {{ .Values.service.ports.metrics }}
+          {{- end }}
 
-{{- if .Values.externalLoadBalancer.enable }}
+{{- if .Values.externalLoadBalancer }}
 ---
 
 apiVersion: v1
@@ -69,22 +95,18 @@ spec:
   externalTrafficPolicy: Cluster
   sessionAffinity: None
   ports:
-    - name: mqtts
-      protocol: TCP
-      port: 58883
-      targetPort: 8883
+    {{- if .Values.externalLoadBalancer.ports.mqtt }}
     - name: mqtt
-      protocol: TCP
-      port: 51883
+      port: {{ .Values.externalLoadBalancer.ports.mqtt }}
       targetPort: 1883
-    - name: https-standart
       protocol: TCP
-      port: 443
-      targetPort: 8443
-    - name: http-standart
-      protocol: TCP
-      port: 80
+    {{- end }}
+    {{- if .Values.externalLoadBalancer.ports.ws }}
+    - name: ws
+      port: {{ .Values.externalLoadBalancer.ports.ws }}
       targetPort: 8080
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
 {{- end }}

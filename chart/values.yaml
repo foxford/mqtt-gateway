@@ -50,37 +50,16 @@ env:
   DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app=mqtt-gateway
 
 service:
-  type: LoadBalancer
+  type: ClusterIP
   annotations: {}
   ports:
-    - name: mqtts
-      port: 58883
-      targetPort: 8883
-    - name: mqtt
-      port: 51883
-      targetPort: 1883
-    - name: metrics
-      port: 58888
-      targetPort: 8888
-    - name: https-standart
-      port: 443
-      targetPort: 8443
-    - name: http-standart
-      port: 80
-      targetPort: 8080
+    mqtts: 8883
+    mqtt: 1883
+    metrics: 8888
+    wss: 443
+    ws: 80
 
 ingress:
   host: example.org
   tls:
     secretName: tls-certificates
-
-externalLoadBalancer:
-  enable: false
-  annotations: {}
-  ports:
-    - name: mqtt
-      port: 51883
-      targetPort: 1883
-    - name: http-standart
-      port: 80
-      targetPort: 8080
