@@ -78,18 +78,22 @@ spec:
               mountPath: /tls
             {{- with .Values.app.svc }}
             {{- $audience := .audience }}
-            {{- range .credentials }}
-            - name: {{ include "mqtt-gateway.volumeMountName" (list $audience .secret) }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "mqtt-gateway.volumeMountName" (list $audience $secret) }}
               mountPath: {{ .mountPath }}
               subPath: {{ .subPath }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- range .Values.app.audiences }}
             {{- $audience := .audience }}
-            {{- range .credentials }}
-            - name: {{ include "mqtt-gateway.volumeMountName" (list $audience .secret) }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "mqtt-gateway.volumeMountName" (list $audience $secret) }}
               mountPath: {{ .mountPath }}
               subPath: {{ .subPath }}
+            {{- end }}
             {{- end }}
             {{- end }}
           resources:
@@ -107,17 +111,17 @@ spec:
             secretName: tls-certificates
         {{- with .Values.app.svc }}
         {{- $audience := .audience }}
-        {{- range .credentials }}
-        - name: {{ include "mqtt-gateway.volumeMountName" (list $audience .secret) }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "mqtt-gateway.volumeMountName" (list $audience $secret) }}
           secret:
-            secretName: {{ .secret }}
+            secretName: {{ $secret }}
         {{- end }}
         {{- end }}
         {{- range .Values.app.audiences }}
         {{- $audience := .audience }}
-        {{- range .credentials }}
-        - name: {{ include "mqtt-gateway.volumeMountName" (list $audience .secret) }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "mqtt-gateway.volumeMountName" (list $audience $secret) }}
           secret:
-            secretName: {{ .secret }}
+            secretName: {{ $secret }}
         {{- end }}
         {{- end }}

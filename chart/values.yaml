@@ -18,26 +18,28 @@ app:
       memory: 400Mi
 
   svc:
-    audience: svc.services
+    audience: foobar
     credentials:
-      - secret: svc-secret
-        subPath: public-key
-        mountPath: /path/to/svc/public/key
+      # foobar-secret-name:
+      #   - subPath: private-key
+      #     mountPath: /path/to/foobar/private/key
+      #   - subPath: public-key
+      #     mountPath: /path/to/foobar/public/key
     authz:
-      type: local
-      trusted:
-        - some-service
+      # type: local
+      # trusted:
+      #   - some-service
     authn:
-      key: /path/to/svc/public/key
+      # key: /path/to/foobar/public/key
 
   audiences:
-    - audience: foo.bar
-      credentials:
-        - secret: foobar-der-credentials
-          subPath: foobar-public-key
-          mountPath: /path/to/foobar/public/key
-      authn:
-        key: /path/to/foobar/public/key
+    # - audience: foobar
+    #   credentials:
+    #     foobar-pem-secret-name:
+    #       - subPath: foobar-public-key
+    #         mountPath: /path/to/foobar/public/key
+    #   authn:
+    #     key: /path/to/foobar/public/key
 
 env:
   APP_CONFIG: /app/App.toml
@@ -47,7 +49,7 @@ env:
   APP_STAT_ENABLED: 1
   APP_RATE_LIMIT_ENABLED: 1
   DOCKER_VERNEMQ_DISCOVERY_KUBERNETES: 0
-  DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app=mqtt-gateway
+  DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR: app.kubernetes.io/name=mqtt-gateway
 
 clusterService:
   ports:
@@ -59,5 +61,6 @@ clusterService:
 
 ingress:
   host: example.org
-  tls:
-    secretName: tls-certificates
+
+tls:
+  secretName: tls-certificates
