@@ -35,13 +35,11 @@ Common labels
 */}}
 {{- define "mqtt-gateway.labels" -}}
 helm.sh/chart: {{ include "mqtt-gateway.chart" . }}
-app.kubernetes.io/name: {{ include "mqtt-gateway.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{ include "mqtt-gateway.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-k8s-app: {{ include "mqtt-gateway.name" . }}
 {{- end }}
 
 {{/*
@@ -50,7 +48,6 @@ Selector labels
 {{- define "mqtt-gateway.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "mqtt-gateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app: {{ include "mqtt-gateway.name" . }}
 {{- end }}
 
 {{/*
