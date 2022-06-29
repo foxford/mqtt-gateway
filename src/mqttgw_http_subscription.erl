@@ -9,10 +9,10 @@ init(Req0, AuthnConfig) ->
     process(Req0, AuthnConfig).
 
 process(Req0, State) ->
-    {Status, JsonBody} = do_process(Req0, State),
+    {Status, JsonBody, Req1} = do_process(Req0, State),
     Response = cowboy_req:reply(Status, #{
         <<"content-type">> => <<"application/json">>
-    }, jsx:encode(JsonBody), Req0),
+    }, jsx:encode(JsonBody), Req1),
     error_logger:info_msg("HTTP api request /api/v1/subscriptions, status = ~p", [Status]),
     {ok, Response, State}.
 
@@ -23,13 +23,14 @@ do_process(Req0=#{method := <<"POST">>}, AuthnConfig) ->
                 Payload ->
                     AuthorizationHeader = cowboy_req:header(<<"authorization">>, Req1),
                     case handle(AuthorizationHeader, Payload, AuthnConfig) of
-                        ok -> {200, #{ result => <<"success">> } };
+                        ok ->
+                            {200, #{ result => <<"success">> }, Req1};
                         {error, #{reason_code := Reason} = ErrResp} ->
                             Status = case maps:find(http_status, ErrResp) of
                                 {ok, S} -> S;
                                 _ -> 422
                             end,
-                            { Status, #{error => Reason} }
+                            {Status, #{error => Reason}, Req1}
                     end
             catch
                 T:R ->
@@ -37,15 +38,14 @@ do_process(Req0=#{method := <<"POST">>}, AuthnConfig) ->
                         "Failed to parse json, payload = ~p"
                         "exception_type = ~p, exception_reason = ~p",
                         [Data, T, R]),
-                    { 422, #{error => <<"failed to parse json payload">>} }
+                    {422, #{error => <<"failed to parse json payload">>}, Req1}
             end;
         _ ->
-            { 413, #{error => <<"payload too large">>} }
+            {413, #{error => <<"payload too large">>}, Req0}
     end,
     Response;
-do_process(_Req0, _State) ->
-    { 405, #{error => <<"invalid method">>} }.
-
+do_process(Req0, _State) ->
+    {405, #{error => <<"invalid method">>}, Req0}.
 
 handle(AuthorizationHeader, #{<<"object">> := Object, <<"subject">> := Subject, <<"version">> := Version }, AuthnConfig) ->
     case check_authz(AuthorizationHeader, AuthnConfig) of

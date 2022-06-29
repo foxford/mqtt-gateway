@@ -7,7 +7,7 @@ start(AuthnConfig) ->
 			{"/api/v1/subscriptions", mqttgw_http_subscription, AuthnConfig}
 		]}
 	]),
-	{ok, _} = cowboy:start_clear(mqttgw_http, [{port, 3030}], #{
+	{ok, _} = cowboy:start_clear(mqttgw_http, [{port, 8081}], #{
 		env => #{dispatch => Dispatch}
 	}),
 	ok.
