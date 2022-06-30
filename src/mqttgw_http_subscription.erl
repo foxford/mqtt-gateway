@@ -56,6 +56,11 @@ handle(AuthorizationHeader, #{<<"object">> := Object, <<"subject">> := Subject, 
                 {Topic, QoS} = mqttgw_dyn_srv:authz_subscription_topic(Data),
                 {BroadcastTopic, BroadcastQoS} = mqttgw_dyn_srv:authz_broadcast_subscription_topic(Data),
                 mqttgw_broker:subscribe(Subject, [{Topic, QoS}, {BroadcastTopic, BroadcastQoS}]),
+                error_logger:info_msg(
+                    "Dynamic subscription: ~p has been created "
+                    "for the subject = '~s'",
+                    [Topic, Subject]
+                ),
                 ok
             catch
                 T:R ->
