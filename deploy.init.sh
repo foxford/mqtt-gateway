@@ -38,7 +38,6 @@ set -ex
 if [[ -n ${NAMESPACE} ]]; then
     FILE_FROM_GITHUB "deploy" "${SOURCE}/certs/ca-${NAMESPACE}.crt"
     FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/s3-docs.sh"
-    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/travis-run.sh"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/kustomization.yaml"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-headless.yaml"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-cluster.yaml" "optional"
@@ -64,14 +63,10 @@ if [[ -n ${NAMESPACE} ]]; then
     echo "In order to enable deployment NAMESPACE is required."
 fi
 
-## Get dependencies.
-FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/ci-install-tools.sh"
-
 ## Use the same project for build & deploy scripts.
-CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh)
+CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh ci-install-tools.sh github-actions-run.sh)
 for FILE in ${CI_FILES[@]}; do
     FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/${FILE}"
     ADD_PROJECT "deploy/${FILE}" "${PROJECT}"
+    chmod u+x "deploy/${FILE}"
 done
-
-chmod u+x deploy/{ci-mdbook.sh,ci-build.sh,ci-deploy.sh,ci-install-tools.sh}
