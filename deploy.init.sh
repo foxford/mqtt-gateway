@@ -38,7 +38,7 @@ set -ex
 if [[ -n ${NAMESPACE} ]]; then
     FILE_FROM_GITHUB "deploy" "${SOURCE}/certs/ca-${NAMESPACE}.crt"
     FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/s3-docs.sh"
-    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/travis-run.sh"
+    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/github-actions-run.sh"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/kustomization.yaml"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-headless.yaml"
     FILE_FROM_GITHUB "deploy/k8s/base" "${SOURCE}/apps/deploy/${PROJECT}/base/${PROJECT}-cluster.yaml" "optional"
