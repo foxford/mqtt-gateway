@@ -41,5 +41,11 @@ spec:
       targetPort: 8080
       protocol: TCP
     {{- end }}
+    {{- if .Values.clusterService.ports.http }}
+    - name: http
+      port: {{ .Values.clusterService.ports.http }}
+      targetPort: 8081
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}

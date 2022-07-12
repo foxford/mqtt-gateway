@@ -58,6 +58,7 @@ clusterService:
     metrics: 58888
     wss: 443
     ws: 80
+    http: 8081
 
 ingress:
   host: example.org
