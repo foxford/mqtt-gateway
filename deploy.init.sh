@@ -45,14 +45,10 @@ if [[ -n ${NAMESPACE} ]]; then
     echo "In order to enable deployment NAMESPACE is required."
 fi
 
-## Get dependencies.
-FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/ci-install-tools.sh"
-
 ## Use the same project for build & deploy scripts.
-CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh github-actions-run.sh)
+CI_FILES=(ci-build.sh ci-deploy.sh ci-mdbook.sh ci-install-tools.sh github-actions-run.sh)
 for FILE in ${CI_FILES[@]}; do
     FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/${FILE}"
     ADD_PROJECT "deploy/${FILE}" "${PROJECT}"
+    chmod u+x "deploy/${FILE}"
 done
-
-chmod u+x deploy/{ci-mdbook.sh,ci-build.sh,ci-deploy.sh,ci-install-tools.sh,github-actions-run.sh}
