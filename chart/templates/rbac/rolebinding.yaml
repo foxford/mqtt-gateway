@@ -1,0 +1,11 @@
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "mqtt-gateway.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mqtt-gateway.fullname" . }}
+roleRef:
+  kind: Role
+  name: {{ include "mqtt-gateway.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io

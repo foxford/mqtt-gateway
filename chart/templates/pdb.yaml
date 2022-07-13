@@ -1,0 +1,11 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mqtt-gateway.fullname" . }}
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "mqtt-gateway.selectorLabels" . | nindent 6 }}

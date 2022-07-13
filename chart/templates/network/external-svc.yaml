@@ -1,0 +1,33 @@
+{{- if .Values.externalService }}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mqtt-gateway.fullname" . }}-external
+  labels:
+    {{- include "mqtt-gateway.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.externalService.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    {{- if .Values.externalService.ports.mqtt }}
+    - name: mqtt
+      port: {{ .Values.externalService.ports.mqtt }}
+      targetPort: 1883
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.externalService.ports.ws }}
+    - name: ws
+      port: {{ .Values.externalService.ports.ws }}
+      targetPort: 8080
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "mqtt-gateway.selectorLabels" . | nindent 4 }}
+
+{{- end }}
