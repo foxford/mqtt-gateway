@@ -6,7 +6,7 @@ replicaCount: 1
 
 app:
   image:
-    repository: foxford/mqtt-gateway
+    repository: cr.yandex/crp1of6bddata8ain3q5/mqtt-gateway
     tag: ""
 
   resources:

@@ -18,7 +18,7 @@ RUN make app && make rel
 ## -----------------------------------------------------------------------------
 ## App
 ## -----------------------------------------------------------------------------
-FROM foxford/vernemq:1.11.0-buster.1
+FROM cr.yandex/crp1of6bddata8ain3q5/vernemq:1.11.0-buster.1
 USER root
 
 RUN mkdir /etc/vernemq

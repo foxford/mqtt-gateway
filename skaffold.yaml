@@ -2,7 +2,7 @@ apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
-  - image: foxford/mqtt-gateway
+  - image: cr.yandex/crp1of6bddata8ain3q5/mqtt-gateway
     docker:
       dockerfile: docker/Dockerfile
   tagPolicy:
@@ -17,7 +17,7 @@ deploy:
       - name: mqtt-gateway
         chartPath: chart
         artifactOverrides:
-          app.image: foxford/mqtt-gateway
+          app.image: cr.yandex/crp1of6bddata8ain3q5/mqtt-gateway
         imageStrategy:
           helm: {}
         valuesFiles:
