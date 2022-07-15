@@ -17,4 +17,4 @@ key = "/app/data/keys/svc.public_key.pem.sample"
 
 [authz."svc.example.org"]
 type = "local"
-trusted = ["app.svc.example.org", "telemetry.svc.example.org", "devops.svc.example.org"]
+trusted = ["app.svc.example.org", "devops.svc.example.org"]
