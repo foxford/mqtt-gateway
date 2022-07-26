@@ -41,5 +41,5 @@ jobs:
         OVPN_CERT: ${{ secrets.OVPN_CERT }}
         OVPN_KEY: ${{ secrets.OVPN_KEY }}
         GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.YANDEX_DOCKER_PASSWORD }}
+        DOCKER_USERNAME: ${{ secrets.YANDEX_DOCKER_USERNAME }}
