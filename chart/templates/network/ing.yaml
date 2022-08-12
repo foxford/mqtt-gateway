@@ -1,4 +1,4 @@
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "mqtt-gateway.fullname" . }}
@@ -18,13 +18,17 @@ spec:
           - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(mqtt)
             pathType: Prefix
             backend:
-              serviceName: {{ include "mqtt-gateway.fullname" . }}-cluster
-              servicePort: {{ .Values.clusterService.ports.ws }}
+              service:
+                name: {{ include "mqtt-gateway.fullname" . }}-cluster
+                port:
+                  number: {{ .Values.clusterService.ports.ws }}
           {{- end }}
           {{- if .Values.clusterService.ports.metrics }}
           - path: {{ include "mqtt-gateway.ingressPath" . }}(/|$)(status)
             pathType: Prefix
             backend:
-              serviceName: {{ include "mqtt-gateway.fullname" . }}-cluster
-              servicePort: {{ .Values.clusterService.ports.metrics }}
+              service:
+                name: {{ include "mqtt-gateway.fullname" . }}-cluster
+                port:
+                  number: {{ .Values.clusterService.ports.metrics }}
           {{- end }}
