@@ -6,7 +6,7 @@ metadata:
   name: {{ include "mqtt-gateway.fullname" . }}-app
 data:
   App.toml: |
-    {{- $id := list (include "mqtt-gateway.name" . ) (include "mqtt-gateway.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    {{- $id := list (include "mqtt-gateway.name" . ) (include "mqtt-gateway.audienceEnvironment" .) .Values.app.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
 
     [rate_limit]
@@ -19,7 +19,7 @@ data:
     ##
     ## SVC
     ##
-    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) .audience | compact | join "." }}
+    {{- $svc_audience := list (include "mqtt-gateway.audienceEnvironment" $) .audience | compact | join "." }}
     {{- with .authn }}
     [authn.{{ $svc_audience | quote }}]
     audience = [{{ $svc_audience | quote }}]
@@ -49,8 +49,8 @@ data:
     ##
     ## {{ .audience }}
     ##
-    {{- $svc_audience := list (include "mqtt-gateway.shortNamespace" $) "svc" .audience | compact | join "." }}
-    {{- $usr_audience := list (include "mqtt-gateway.shortNamespace" $) "usr" .audience | compact | join "." }}
+    {{- $svc_audience := list (include "mqtt-gateway.audienceEnvironment" $) "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list (include "mqtt-gateway.audienceEnvironment" $) "usr" .audience | compact | join "." }}
     {{- with "authn" | get . }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
@@ -58,7 +58,7 @@ data:
     key = {{ "key" | get . | quote }}
     {{- end}}
 
-    {{- $ns_audience := list (include "mqtt-gateway.shortNamespace" $) .audience | compact | join "."  }}
+    {{- $ns_audience := list (include "mqtt-gateway.audienceEnvironment" $) .audience | compact | join "."  }}
     {{- println "" }}
 
     {{- with "authz" | get . }}
