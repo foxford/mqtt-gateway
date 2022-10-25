@@ -65,3 +65,7 @@ ingress:
 
 tls:
   secretName: tls-certificates
+
+serviceMonitor:
+  labels:
+    release: kube-prometheus-stack
