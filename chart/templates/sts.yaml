@@ -17,6 +17,9 @@ spec:
       labels:
         {{- include "mqtt-gateway.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.priorityClass }}
+      priorityClassName: {{ .Values.priorityClass.name }}
+      {{- end }}
       imagePullSecrets:
         - name: regcred
       initContainers:
