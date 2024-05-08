@@ -27,6 +27,5 @@ jobs:
       namespace: ${{ inputs.namespace }}
       version: ${{ inputs.version }}
     secrets:
-      kube_config_base64: ${{ secrets.KUBE_CONFIG_DEV_BASE64 }}
       gh_token: ${{ secrets._GITHUB_TOKEN }}
 
