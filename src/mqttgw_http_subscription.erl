@@ -81,6 +81,7 @@ check_authz(<<"Bearer ",Token/binary>>, {enabled, AuthnCfg}) ->
             case maps:find(label, AccountId) of
                 {ok, <<"conference">>} -> {ok, AccountId};
                 {ok, <<"event">>} -> {ok, AccountId};
+                {ok, <<"ulms">>} -> {ok, AccountId};
                 _ -> {error, #{reason_code => not_allowed}}
             end
     catch
