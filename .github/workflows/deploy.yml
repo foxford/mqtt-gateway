@@ -3,18 +3,23 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
+      cluster:
+        description: 'Select cluster'
+        required: false
+        default: 'dev'
       namespace:
         type: choice
         description: 'Select namespace'
         options:
         - s01-classroom-foxford
         - s01-minigroup-foxford
+        - s01-minigroup-b2g
         - s01-webinar-foxford
         - s01-webinar-b2g
+        - s01-webinar-tt
         - t01
         - t02
         - t03
-        - t04
       version:
         description: 'Commit/tag/branch'
         required: false
@@ -24,8 +29,8 @@ jobs:
   deploy:
     uses: foxford/reusable-workflows/.github/workflows/deploy-via-flux.yml@master
     with:
+      cluster: ${{ inputs.cluster }}
       namespace: ${{ inputs.namespace }}
       version: ${{ inputs.version }}
     secrets:
       gh_token: ${{ secrets._GITHUB_TOKEN }}
-

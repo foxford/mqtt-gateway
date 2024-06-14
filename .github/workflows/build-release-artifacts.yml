@@ -1,4 +1,4 @@
-name: Build release artifacts
+name: Build release version of charts and images and push into registry
 
 on:
   push:
