@@ -2,14 +2,12 @@
 name: Check Dockerfile standards
 
 on:
-  pull_request:
-    branches:
+  push:
+    branches-ignore:
       - main
       - master
-    types:
-      - opened
-      - reopened
-      - synchronize
+    tags-ignore:
+      - "**"
 
 jobs:
   check-dockerfile:
