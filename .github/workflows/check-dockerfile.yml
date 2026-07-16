@@ -1,0 +1,16 @@
+---
+name: Check Dockerfile standards
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+    tags-ignore:
+      - "**"
+
+jobs:
+  check-dockerfile:
+    uses: foxford/reusable-workflows/.github/workflows/check-dockerfile.yml@master
+    secrets:
+      gh_token: ${{ secrets._GITHUB_TOKEN }}
